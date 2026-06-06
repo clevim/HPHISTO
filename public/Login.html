@@ -305,16 +305,8 @@
       }
     });
 
-    document.getElementById('demo').addEventListener('click', async () => {
-      // Verifica se há usuários; se não, modo aberto → vai direto
-      try {
-        const r = await fetch('/api/auth/me');
-        if (r.status === 401) {
-          const d = await r.json();
-          if (!d.hasUsers) { ignite(); return; }
-        } else if (r.ok) { ignite(); return; }
-      } catch (e) {}
-      fail('modo demo não disponível — crie uma conta');
+    document.getElementById('demo').addEventListener('click', () => {
+      window.location.href = 'index.html?demo=1';
     });
 
     document.getElementById('forgot').addEventListener('click', e => {

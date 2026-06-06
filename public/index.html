@@ -59,13 +59,17 @@
   </script>
 
   <script>
-    // verifica autenticação — redireciona para Login se necessário
-    fetch('/api/auth/me').then(async r => {
-      if (r.status === 401) {
-        const d = await r.json().catch(() => ({}));
-        if (d.hasUsers) window.location.replace('Login.html');
-      }
-    }).catch(() => {});
+    // verifica autenticação — redireciona para Login/Cadastro se necessário
+    // demo=1 não precisa de login
+    if (new URLSearchParams(location.search).get('demo') !== '1') {
+      fetch('/api/auth/me').then(async r => {
+        if (r.status === 401) {
+          const d = await r.json().catch(() => ({}));
+          // hasUsers → Login; sem usuários → Cadastro (primeiro acesso)
+          window.location.replace(d.hasUsers ? 'Login.html' : 'Cadastro.html');
+        }
+      }).catch(() => {});
+    }
 
     // registra o service worker (PWA / offline) — só em http(s), não em file://
     if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

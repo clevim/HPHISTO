@@ -3,6 +3,7 @@ const { useState, useEffect, useCallback, useRef, createContext, useContext } = 
 
 const STORE_KEY = 'calc3d_v1';
 const API       = '/api/state';
+const IS_DEMO   = new URLSearchParams(location.search).get('demo') === '1';
 
 function parseState(p) {
   if (!p) return null;
@@ -52,11 +53,13 @@ function normPrinter(p) {
 const StoreCtx = createContext(null);
 
 function StoreProvider({ children }) {
-  const [state, setState] = useState(loadState);
-  const synced = useRef(false); // true após o servidor responder
+  const [state, setState] = useState(() =>
+    IS_DEMO ? parseState(APP_DATA.DEMO_DATA) : loadState()
+  );
+  const synced = useRef(false);
 
-  // Hidrata do servidor no mount; localStorage serve como cache offline
   useEffect(() => {
+    if (IS_DEMO) return; // demo: não busca nem sincroniza com o servidor
     fetch(API)
       .then(r => r.ok ? r.json() : null)
       .then(remote => { const s = parseState(remote); if (s) setState(s); })
@@ -64,8 +67,8 @@ function StoreProvider({ children }) {
       .finally(() => { synced.current = true; });
   }, []);
 
-  // Persiste em localStorage + servidor em cada mudança
   useEffect(() => {
+    if (IS_DEMO) return; // demo: mudanças ficam só em memória React
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
     if (!synced.current) return;
     fetch(API, {
@@ -77,6 +80,7 @@ function StoreProvider({ children }) {
 
   const api = {
     ...state,
+    isDemo: IS_DEMO,
     t: (key) => I18N.t(state.settings.lang, key),
     money: (v) => I18N.money(v, state.settings),
     curSymbol: () => I18N.curSymbol(state.settings),

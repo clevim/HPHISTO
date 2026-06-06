@@ -96,7 +96,7 @@ function App() {
   else if (screen === 'settings') content = <SettingsScreen />;
 
   return (
-    <div className="app">
+    <div className={'app' + (store.isDemo ? ' has-demo-bar' : '')}>
       <main className={'main' + (screen === 'dash' ? ' dash-mode' : '')}>
         {screen !== 'dash' && (
         <div className="screen-head no-print">
@@ -116,6 +116,17 @@ function App() {
 
       {screen !== 'dash' && <OrbitLauncher navigate={navigate} active={active} t={t} onNewQuote={() => navigate('calc', { loadInput: null, fresh: Date.now() })} />}
       <CommandPalette store={store} navigate={navigate} screen={screen} />
+
+      {store.isDemo && (
+        <div className="demo-bar no-print">
+          <span className="demo-bar-dot" />
+          <span className="demo-bar-label">MODO DEMONSTRAÇÃO</span>
+          <span className="demo-bar-hint">Nenhuma alteração é salva</span>
+          <span className="demo-bar-sep" />
+          <a href="Cadastro.html" className="demo-bar-btn accent">Criar conta</a>
+          <a href="Login.html" className="demo-bar-btn">Entrar</a>
+        </div>
+      )}
     </div>
   );
 }

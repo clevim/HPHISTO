@@ -209,7 +209,7 @@ function OperatorCard({ store }) {
     if (!confirm(en ? 'End session and return to login?' : 'Encerrar sessão e voltar ao login?')) return;
     if (window.FX) FX.cling(s.soundOn);
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
-    window.location.href = 'Login.html';
+    window.location.replace('Login.html');
   };
 
   return (

@@ -103,26 +103,25 @@ function ClientsScreen({ onNavigate }) {
         <SectionLabel>{clients.length} {t('nav_clients').toLowerCase()}</SectionLabel>
       </div>
 
-      {clients.length === 0 ? (
-        <div className="empty"><Icon name="user" /><p>{t('clients_empty')}</p></div>
-      ) : (
-        <div className="tag-wall">
-          {clients.map((c, i) => (
-            <KeyTag key={c.id} store={store} c={c} onNavigate={onNavigate}
-              onEdit={(cl) => setModal(cl)} maxBilled={maxBilled} delay={-(i % 5) * 0.7} />
-          ))}
-          <button className="keytag kt-add" onClick={() => setModal('new')}>
-            <span className="kt-peg" />
-            <span className="kt-ring" />
-            <div className="kt-plate">
-              <span className="kt-hole" />
-              <span className="kt-add-plus"><Icon name="plus" /></span>
-              <div className="kt-add-lbl">{t('add_client')}</div>
-              <div className="kt-add-sub mono">{t('crm')}</div>
-            </div>
-          </button>
-        </div>
+      {clients.length === 0 && (
+        <p className="screen-hint" style={{ marginBottom: 16 }}>{t('clients_empty')}</p>
       )}
+      <div className="tag-wall">
+        {clients.map((c, i) => (
+          <KeyTag key={c.id} store={store} c={c} onNavigate={onNavigate}
+            onEdit={(cl) => setModal(cl)} maxBilled={maxBilled} delay={-(i % 5) * 0.7} />
+        ))}
+        <button className="keytag kt-add" onClick={() => setModal('new')}>
+          <span className="kt-peg" />
+          <span className="kt-ring" />
+          <div className="kt-plate">
+            <span className="kt-hole" />
+            <span className="kt-add-plus"><Icon name="plus" /></span>
+            <div className="kt-add-lbl">{t('add_client')}</div>
+            <div className="kt-add-sub mono">{t('crm')}</div>
+          </div>
+        </button>
+      </div>
       {modal && <ClientModal store={store} editing={modal === 'new' ? null : modal} onClose={() => setModal(null)} />}
     </div>
   );

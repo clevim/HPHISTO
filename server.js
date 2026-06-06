@@ -104,10 +104,14 @@ function auth(req, res, next) {
   const sessId = req.cookies?.hfsto_sess;
   if (sessId && getUserFromSession(sessId)) return next();
 
-  // 2. API_TOKEN: cookie legado ou Bearer header
+  // 2. API_TOKEN
   if (API_TOKEN) {
-    const sid = req.cookies?.hfsto_sid;
-    if (sid && sid === sessionCookie()) return next();
+    // Cookie legado só vale quando não há usuários cadastrados (setup antigo sem contas)
+    if (userCount() === 0) {
+      const sid = req.cookies?.hfsto_sid;
+      if (sid && sid === sessionCookie()) return next();
+    }
+    // Bearer token: sempre aceito para clientes externos via API
     const header = req.headers['authorization'] || '';
     if (header === `Bearer ${API_TOKEN}`) return next();
   }
@@ -125,9 +129,9 @@ const app = express();
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' }));
 
-// Emite o cookie de sessão na primeira visita à página
+// Cookie legado de sessão — só usado quando não há usuários cadastrados (setup antigo)
 app.use((req, res, next) => {
-  if (API_TOKEN && req.method === 'GET' && !req.cookies?.hfsto_sid) {
+  if (API_TOKEN && req.method === 'GET' && !req.cookies?.hfsto_sid && userCount() === 0) {
     res.cookie('hfsto_sid', sessionCookie(), {
       httpOnly: true, sameSite: 'strict', path: '/',
     });
@@ -161,10 +165,16 @@ app.get('/api/auth/me', (req, res) => {
     if (user) return res.json({ ...user, mode: 'session' });
   }
   if (API_TOKEN) {
-    const sid    = req.cookies?.hfsto_sid;
     const header = req.headers['authorization'] || '';
-    if ((sid && sid === sessionCookie()) || header === `Bearer ${API_TOKEN}`) {
+    if (header === `Bearer ${API_TOKEN}`) {
       return res.json({ id: 0, email: 'operator@hosto.local', name: 'Operador', mode: 'token' });
+    }
+    // Cookie legado só válido sem usuários cadastrados
+    if (userCount() === 0) {
+      const sid = req.cookies?.hfsto_sid;
+      if (sid && sid === sessionCookie()) {
+        return res.json({ id: 0, email: 'operator@hosto.local', name: 'Operador', mode: 'token' });
+      }
     }
   }
   res.status(401).json({ error: 'not authenticated', hasUsers: userCount() > 0 });
@@ -202,7 +212,7 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   const sessId = req.cookies?.hfsto_sess;
   if (sessId) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessId);
-  res.clearCookie('hfsto_sess');
+  res.clearCookie('hfsto_sess', { path: '/' });
   res.json({ ok: true });
 });
 
