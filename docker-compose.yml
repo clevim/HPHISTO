@@ -1,0 +1,17 @@
+services:
+  hfsto:
+    build: .
+    image: hfsto:latest
+    container_name: hfsto
+    ports:
+      - "8080:8080"
+    volumes:
+      - hfsto_data:/data
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/hphisto.db
+      - API_TOKEN=${API_TOKEN:-}   # defina no .env ou passe direto
+    restart: unless-stopped
+
+volumes:
+  hfsto_data:
