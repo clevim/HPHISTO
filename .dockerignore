@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules/
+data/
+uploads/
+screenshots/
+.env
+.DS_Store
+Thumbs.db
+TODO.md
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+.claude/

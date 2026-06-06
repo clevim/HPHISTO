@@ -1,0 +1,22 @@
+# Dependências
+node_modules/
+
+# Banco de dados local
+data/
+
+# Variáveis de ambiente
+.env
+
+# Uploads e temporários
+uploads/
+screenshots/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
