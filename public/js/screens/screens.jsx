@@ -196,6 +196,47 @@ function ReadoutField({ label, hint, children }) {
   );
 }
 
+function OperatorCard({ store }) {
+  const s = store.settings;
+  const en = s.lang === 'en';
+  const name = (s.contactName || '').trim() || (en ? 'Operator' : 'Operador');
+  const initials = (name.split(/\s+/).slice(0, 2).map(w => w[0]).join('') || 'OP').toUpperCase();
+  const handle = s.contactWhats ? ('@' + String(s.contactWhats).replace(/[^0-9]/g, '').slice(-6)) : '@hosto-forja';
+  const since = s.createdYear || new Date().getFullYear();
+  const opId = String((initials.charCodeAt(0) || 72) * 137 % 9000 + 1000);
+
+  const logout = async () => {
+    if (!confirm(en ? 'End session and return to login?' : 'Encerrar sessão e voltar ao login?')) return;
+    if (window.FX) FX.cling(s.soundOn);
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) {}
+    window.location.href = 'Login.html';
+  };
+
+  return (
+    <div className="op-card">
+      <span className="op-mag" />
+      <div className="op-avatar"><span>{initials}</span></div>
+      <div className="op-id">
+        <div className="op-name">{name}</div>
+        <div className="op-handle mono">{handle}</div>
+        <div className="op-tags">
+          <span className="op-role">{en ? 'CHIEF OPERATOR' : 'OPERADOR-CHEFE'}</span>
+          <span className="op-session"><i />{en ? 'ACTIVE SESSION' : 'SESSÃO ATIVA'}</span>
+        </div>
+      </div>
+      <div className="op-meta mono">
+        <span>ID #{opId}</span>
+        <span>{en ? 'SINCE' : 'DESDE'} {since}</span>
+        <span className="op-barcode" aria-hidden="true" />
+      </div>
+      <button className="op-logout" onClick={logout} title={en ? 'Log out' : 'Sair'}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+        <span>{en ? 'Log out' : 'Sair'}</span>
+      </button>
+    </div>
+  );
+}
+
 function SettingsScreen() {
   const store = useStore();
   const t = store.t;
@@ -255,6 +296,7 @@ function SettingsScreen() {
   };
   return (
     <div className="page page-narrow stack" style={{ gap: 18 }}>
+      <OperatorCard store={store} />
       <DeckPanel icon="settings" title={t('sec_business')} code="CFG·01">
         <div className="readout-field">
           <label>{t('language')}</label>

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="console">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>HΦSTO — forjar nova oficina</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <meta name="theme-color" content="#1a1206" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html, body { height: 100%; }
+    body { min-height: 100%; display: grid; place-items: center; padding: clamp(16px, 4vw, 48px); overflow: auto; }
+    body::after { content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(70% 60% at 50% 38%, oklch(from var(--accent) l c h / 0.10), transparent 70%); }
+    .auth-deck {
+      position: relative; z-index: 1; width: min(940px, 100%);
+      display: grid; grid-template-columns: 1.05fr 1fr;
+      background: var(--card); border: 1px solid var(--line-2); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); overflow: hidden;
+      animation: deckIn .5s cubic-bezier(.2,.8,.2,1) both;
+    }
+    @keyframes deckIn { from { opacity: 0; transform: translateY(14px); } }
+    .auth-deck::before, .auth-deck::after { content: ""; position: absolute; width: 13px; height: 13px; z-index: 6; pointer-events: none; }
+    .auth-deck::before { top: 9px; left: 9px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+    .auth-deck::after  { bottom: 9px; right: 9px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+    .screw { position: absolute; width: 9px; height: 9px; border-radius: 50%; z-index: 6; background: radial-gradient(circle at 38% 35%, var(--line-2), var(--readout-bg)); border: 1px solid var(--line); }
+    .screw::after { content: ""; position: absolute; inset: 2.5px; border-top: 1.5px solid var(--ink-3); opacity: .5; transform: rotate(35deg); }
+    .screw.tr { top: 10px; right: 10px; } .screw.bl { bottom: 10px; left: 10px; }
+
+    .auth-aside {
+      position: relative; padding: 30px 30px 22px; display: flex; flex-direction: column;
+      background:
+        radial-gradient(120% 80% at 50% 0%, oklch(from var(--accent) l c h / 0.06), transparent 60%),
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+        var(--readout-bg);
+      background-size: 100% 100%, 22px 22px, 22px 22px, 100% 100%;
+      border-right: 1px solid var(--line);
+    }
+    .aside-brand { display: flex; align-items: center; gap: 12px; }
+    .brand-sq { width: 40px; height: 40px; border-radius: 2px; background: var(--accent); display: grid; place-items: center; flex: none; position: relative; }
+    .brand-sq::after { content: ""; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--accent); }
+    .brand-sq img { width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+    .brand-tt { font-family: var(--font-display); font-weight: 800; font-size: 17px; letter-spacing: -0.01em; text-transform: uppercase; line-height: 1; }
+    .brand-tt small { display: block; font-family: var(--font-mono); font-weight: 400; font-size: 8px; letter-spacing: 0.16em; color: var(--ink-3); text-transform: uppercase; margin-top: 5px; }
+
+    .login-spool { position: relative; flex: 1; display: grid; place-items: center; min-height: 230px; margin: 6px 0; }
+    .login-spool svg { width: min(248px, 64%); height: auto; overflow: visible; }
+    .ls-glow { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 62%; aspect-ratio: 1; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, oklch(from var(--accent) l c h / 0.20), transparent 66%); transition: opacity .4s; }
+    .ls-spin { transform-box: view-box; transform-origin: 150px 150px; animation: lspin 24s linear infinite; }
+    .igniting .ls-spin { animation-duration: 1.6s; }
+    @keyframes lspin { to { transform: rotate(360deg); } }
+    .ls-flange { fill: var(--panel-head); stroke: var(--line-2); stroke-width: 2; }
+    .ls-flange-in { fill: none; stroke: var(--line); stroke-width: 1; }
+    .ls-mass { fill: oklch(from var(--accent) l c h / 0.12); }
+    .ls-spiral { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 1.5px oklch(from var(--accent) l c h / 0.45)); }
+    .ls-glowline { fill: none; stroke: oklch(from var(--accent) calc(l + 0.24) c h); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; opacity: .95; stroke-dasharray: 90 910; stroke-dashoffset: 1000; filter: drop-shadow(0 0 4px oklch(from var(--accent) calc(l + 0.15) c h)); animation: lrun 8s linear infinite; }
+    .igniting .ls-glowline { animation-duration: 1.4s; }
+    @keyframes lrun { from { stroke-dashoffset: 1000; } to { stroke-dashoffset: 0; } }
+    .ls-hole { fill: var(--paper); stroke: var(--line-2); stroke-width: 1.4; }
+    .ls-core { fill: var(--card); stroke: none; }
+    .ls-coreshadow { fill: none; stroke: oklch(0 0 0 / 0.45); stroke-width: 4; }
+    .ls-pct { font-family: var(--font-mono); fill: var(--accent); font-weight: 700; }
+    .ls-sub { font-family: var(--font-mono); fill: var(--ink-3); }
+
+    .aside-status { display: flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); border-top: 1px solid var(--line); padding-top: 12px; }
+    .aside-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; box-shadow: 0 0 8px var(--accent); animation: blink 2s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: .3; } }
+    .aside-status b { color: var(--accent); font-weight: 700; }
+    .aside-status .spacer { flex: 1; }
+    .aside-status .ver { color: var(--ink-3); letter-spacing: 0.08em; }
+
+    .auth-form { position: relative; padding: 34px clamp(26px, 4vw, 40px); display: flex; flex-direction: column; }
+    .form-head h1 { font-family: var(--font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; text-transform: uppercase; margin-top: 4px; }
+    .auth-fields { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
+    .ctrl-wrap { position: relative; }
+    .ctrl-wrap .reveal { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 34px; height: calc(100% - 4px); display: grid; place-items: center; color: var(--ink-3); border-left: 1px solid var(--line-2); background: none; }
+    .ctrl-wrap .reveal:hover { color: var(--accent); }
+    .ctrl-wrap .reveal svg { width: 16px; height: 16px; }
+    .field.ok > label::after { content: "▸ selado"; margin-left: auto; color: var(--good); font-size: 9px; letter-spacing: 0.08em; }
+    .field.ok .control { border-color: oklch(from var(--good) l c h / 0.55); }
+    .strength { height: 4px; border-radius: 3px; background: oklch(0 0 0 / 0.28); overflow: hidden; margin-top: 2px; }
+    .strength > span { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--danger); transition: width .25s, background .25s; }
+    .strength.s2 > span { background: var(--warn); }
+    .strength.s3 > span { background: var(--good); }
+    .chk { display: inline-flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 11.5px; color: var(--ink-2); user-select: none; }
+    .chk input { position: absolute; opacity: 0; pointer-events: none; }
+    .chk .box { width: 16px; height: 16px; border: 1px solid var(--line-2); border-radius: 2px; display: grid; place-items: center; background: var(--paper); flex: none; transition: .12s; margin-top: 1px; }
+    .chk input:checked + .box { background: var(--accent); border-color: var(--accent); }
+    .chk .box svg { width: 11px; height: 11px; opacity: 0; stroke: var(--accent-ink); }
+    .chk input:checked + .box svg { opacity: 1; }
+    .chk a { text-transform: none; font-size: 11px; color: var(--accent); }
+    .err { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--danger); min-height: 14px; margin-top: 12px; display: flex; align-items: center; gap: 6px; opacity: 0; transition: opacity .15s; }
+    .err.on { opacity: 1; } .err::before { content: "▸"; }
+    .btn-enter { width: 100%; margin-top: 16px; padding: 13px; font-size: 12px; gap: 10px; }
+    .igniting .btn-enter { pointer-events: none; }
+    .signup { text-align: center; font-size: 12px; color: var(--ink-3); margin-top: 18px; }
+    .signup a { color: var(--accent); font-weight: 600; }
+    .form-foot { margin-top: auto; padding-top: 22px; display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+    .form-foot .spacer { flex: 1; }
+    .theme-switch { position: absolute; top: 14px; right: 16px; display: flex; gap: 4px; z-index: 7; }
+    .theme-switch button { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-2); padding: 0; cursor: pointer; }
+    .theme-switch button[data-t="console"]   { background: oklch(0.82 0.155 72); }
+    .theme-switch button[data-t="blueprint"] { background: oklch(0.80 0.135 205); }
+    .theme-switch button[data-t="paper"]     { background: oklch(0.92 0.02 90); }
+    .theme-switch button.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .igniting { animation: flick .5s steps(2) 1; }
+    @keyframes flick { 30% { filter: brightness(1.25); } 60% { filter: brightness(.92); } }
+    @media (max-width: 700px) {
+      .auth-deck { grid-template-columns: 1fr; }
+      .auth-aside { border-right: none; border-bottom: 1px solid var(--line); }
+      .login-spool { min-height: 150px; } .login-spool svg { width: 150px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ls-spin, .ls-glowline, .aside-status .dot, .auth-deck { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="auth-deck" id="deck">
+    <span class="screw tr"></span>
+    <span class="screw bl"></span>
+
+    <section class="auth-aside">
+      <div class="theme-switch" id="themeSwitch">
+        <button data-t="console" class="on" title="Console" aria-label="Tema Console"></button>
+        <button data-t="blueprint" title="Blueprint" aria-label="Tema Blueprint"></button>
+        <button data-t="paper" title="Papel" aria-label="Tema Papel"></button>
+      </div>
+      <div class="aside-brand">
+        <span class="brand-sq"><img src="assets/logo-mark.png" alt="HØSTO" /></span>
+        <span class="brand-tt">HΦSTO<small>Forja de preços 3D</small></span>
+      </div>
+      <div class="login-spool">
+        <span class="ls-glow" id="lsGlow" style="opacity:.2;"></span>
+        <svg viewBox="0 0 300 300" id="spool"></svg>
+      </div>
+      <div class="aside-status">
+        <span class="dot" id="statDot"></span>
+        <span>Bobina · <b id="statTxt">VAZIA</b></span>
+        <span class="spacer"></span>
+        <span class="ver">NOVA OFICINA</span>
+      </div>
+    </section>
+
+    <section class="auth-form">
+      <div class="form-head">
+        <div class="section-label">Nova oficina</div>
+        <h1>Criar conta</h1>
+      </div>
+
+      <form id="signupForm" novalidate>
+        <div class="auth-fields">
+          <div class="field" id="f-oficina">
+            <label for="oficina">Nome da oficina</label>
+            <div class="control"><input type="text" id="oficina" autocomplete="organization" placeholder="Ex: Forja Maker" /></div>
+          </div>
+          <div class="field" id="f-email">
+            <label for="email">E-mail</label>
+            <div class="control"><input type="email" id="email" autocomplete="email" placeholder="voce@oficina.com" /></div>
+          </div>
+          <div class="field" id="f-senha">
+            <label for="senha">Senha <span class="hint" id="strengthTxt">mín. 6 caracteres</span></label>
+            <div class="control ctrl-wrap">
+              <input type="password" id="senha" autocomplete="new-password" placeholder="crie uma senha" />
+              <button type="button" class="reveal" id="reveal" aria-label="Mostrar senha">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="strength" id="strength"><span></span></div>
+          </div>
+          <label class="chk" id="f-terms">
+            <input type="checkbox" id="terms" />
+            <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+            <span>Aceito os <a href="#" id="termsLink">termos de serviço</a> da forja</span>
+          </label>
+        </div>
+
+        <div class="err" id="err"></div>
+
+        <button type="submit" class="btn btn-primary btn-enter" id="enter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+          <span id="enterTxt">Forjar minha conta</span>
+        </button>
+      </form>
+
+      <div class="signup">
+        Já tem oficina? <a href="Login.html">Entrar no painel</a>
+      </div>
+
+      <div class="form-foot">
+        <span>HΦSTO Systems</span>
+        <span class="spacer"></span>
+        <span>Conexão segura ▸ TLS</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.getElementById('spool');
+    const C = (cls, a) => { const c = document.createElementNS(NS, 'circle'); c.setAttribute('class', cls); for (const k in a) c.setAttribute(k, a[k]); return c; };
+    const P = (cls, dd, e) => { const p = document.createElementNS(NS, 'path'); p.setAttribute('class', cls); p.setAttribute('d', dd); for (const k in (e||{})) p.setAttribute(k, e[k]); return p; };
+    const TXT = (cls, x, y, sz, txt, fill) => { const t = document.createElementNS(NS, 'text'); t.setAttribute('class', cls); t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('text-anchor', 'middle'); t.setAttribute('font-size', sz); t.setAttribute('letter-spacing', '1.5'); if (fill) t.setAttribute('fill', fill); t.textContent = txt; return t; };
+
+    function spiralPath(frac) {
+      const rIn = 103, rOutFull = 137, rOut = rIn + Math.max(0, frac) * (rOutFull - rIn);
+      if (rOut - rIn < 1.5) return { d: '', rOut };
+      const turns = Math.max(1, Math.round((rOut - rIn) / 3.8)), steps = Math.max(48, turns * 60);
+      let d = '';
+      for (let s = 0; s <= steps; s++) {
+        const f = s / steps, ang = f * turns * 2 * Math.PI - Math.PI / 2;
+        const r = rIn + (rOut - rIn) * f, x = 150 + r * Math.cos(ang), y = 150 + r * Math.sin(ang);
+        d += (s === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
+      }
+      return { d, rOut };
+    }
+
+    let curFrac = -1;
+    function drawSpool(frac) {
+      if (frac === curFrac) return; curFrac = frac;
+      svg.textContent = '';
+      const g = document.createElementNS(NS, 'g'); g.setAttribute('class', 'ls-spin');
+      g.appendChild(C('ls-flange', { cx: 150, cy: 150, r: 145 }));
+      g.appendChild(C('ls-flange-in', { cx: 150, cy: 150, r: 137 }));
+      const sp = spiralPath(frac);
+      if (sp.d) {
+        g.appendChild(C('ls-mass', { cx: 150, cy: 150, r: sp.rOut }));
+        g.appendChild(P('ls-spiral', sp.d));
+        g.appendChild(P('ls-glowline', sp.d, { pathLength: 1000 }));
+      }
+      for (let i = 0; i < 8; i++) {
+        const a = (i * 45 - 90) * Math.PI / 180;
+        g.appendChild(C('ls-hole', { cx: 150 + 141 * Math.cos(a), cy: 150 + 141 * Math.sin(a), r: 6 }));
+      }
+      g.appendChild(C('ls-coreshadow', { cx: 150, cy: 150, r: 104 }));
+      g.appendChild(C('ls-core', { cx: 150, cy: 150, r: 102 }));
+      svg.appendChild(g);
+      const pct = Math.round(frac * 100);
+      svg.appendChild(TXT('ls-pct', 150, 148, 26, pct + '%'));
+      svg.appendChild(TXT('ls-sub', 150, 168, 9, frac >= 1 ? 'FORJADO' : 'FORJANDO', 'var(--ink-3)'));
+      document.getElementById('lsGlow').style.opacity = (0.18 + frac * 0.7).toFixed(2);
+    }
+
+    const oficina = document.getElementById('oficina');
+    const emailEl = document.getElementById('email');
+    const senhaEl = document.getElementById('senha');
+    const termsEl = document.getElementById('terms');
+    const statTxt = document.getElementById('statTxt');
+    const statDot = document.getElementById('statDot');
+    const emailOk = v => /.+@.+\..+/.test(v);
+
+    function checks() {
+      return {
+        oficina: oficina.value.trim().length >= 2,
+        email:   emailOk(emailEl.value.trim()),
+        senha:   senhaEl.value.length >= 6,
+        terms:   termsEl.checked,
+      };
+    }
+
+    function update() {
+      const c = checks();
+      ['oficina', 'email', 'senha'].forEach(k => document.getElementById('f-' + k).classList.toggle('ok', c[k]));
+      const done = Object.values(c).filter(Boolean).length;
+      const frac = done / 4;
+      drawSpool(frac);
+      if (frac >= 1) { statTxt.textContent = 'PRONTA'; statDot.style.background = 'var(--good)'; statDot.style.boxShadow = '0 0 8px var(--good)'; }
+      else if (frac > 0) { statTxt.textContent = 'ENROLANDO'; statDot.style.background = 'var(--accent)'; statDot.style.boxShadow = '0 0 8px var(--accent)'; }
+      else { statTxt.textContent = 'VAZIA'; statDot.style.background = 'var(--ink-3)'; statDot.style.boxShadow = 'none'; }
+      // força da senha
+      const v = senhaEl.value; let score = 0;
+      if (v.length >= 6) score++;
+      if (/[A-Z]/.test(v) && /[a-z]/.test(v)) score++;
+      if (/\d/.test(v) || /[^A-Za-z0-9]/.test(v)) score++;
+      const strength = document.getElementById('strength');
+      strength.className = 'strength' + (v ? ' s' + score : '');
+      strength.querySelector('span').style.width = v ? (score / 3 * 100) + '%' : '0';
+      document.getElementById('strengthTxt').textContent = !v ? 'mín. 6 caracteres' : ['fraca', 'fraca', 'média', 'forte'][score];
+    }
+
+    [oficina, emailEl, senhaEl].forEach(el => el.addEventListener('input', update));
+    termsEl.addEventListener('change', update);
+
+    document.getElementById('reveal').addEventListener('click', function () {
+      const show = senhaEl.type === 'password';
+      senhaEl.type = show ? 'text' : 'password';
+      this.style.color = show ? 'var(--accent)' : '';
+    });
+
+    // tema
+    const sw = document.getElementById('themeSwitch');
+    const saved = localStorage.getItem('calc3d_theme') || 'console';
+    document.documentElement.setAttribute('data-theme', saved);
+    sw.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === saved));
+    sw.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      document.documentElement.setAttribute('data-theme', b.dataset.t);
+      localStorage.setItem('calc3d_theme', b.dataset.t);
+      sw.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    });
+
+    const errEl    = document.getElementById('err');
+    const deck     = document.getElementById('deck');
+    const enterTxt = document.getElementById('enterTxt');
+
+    function fail(msg) {
+      errEl.textContent = msg; errEl.classList.add('on');
+      deck.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: '' }], { duration: 240 });
+    }
+
+    document.getElementById('signupForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const c = checks();
+      if (!c.oficina) return fail('informe o nome da oficina');
+      if (!c.email)   return fail('e-mail inválido');
+      if (!c.senha)   return fail('senha muito curta (mín. 6)');
+      if (!c.terms)   return fail('aceite os termos para continuar');
+
+      errEl.classList.remove('on');
+      document.getElementById('enter').disabled = true;
+      enterTxt.textContent = 'Forjando...';
+
+      try {
+        const r = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: emailEl.value.trim(), password: senhaEl.value, name: oficina.value.trim() }),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          deck.classList.add('igniting');
+          statTxt.textContent = 'ONLINE';
+          statDot.style.background = 'var(--good)'; statDot.style.boxShadow = '0 0 8px var(--good)';
+          setTimeout(() => { window.location.href = 'index.html'; }, 1250);
+        } else {
+          document.getElementById('enter').disabled = false;
+          enterTxt.textContent = 'Forjar minha conta';
+          fail(d.error || 'erro ao criar conta');
+        }
+      } catch (err) {
+        document.getElementById('enter').disabled = false;
+        enterTxt.textContent = 'Forjar minha conta';
+        fail('erro de conexão com o servidor');
+      }
+    });
+
+    document.getElementById('termsLink').addEventListener('click', e => {
+      e.preventDefault(); fail('termos disponíveis na versão de produção');
+    });
+
+    // já autenticado? vai direto
+    fetch('/api/auth/me').then(r => { if (r.ok) window.location.replace('index.html'); }).catch(() => {});
+
+    drawSpool(0);
+  </script>
+</body>
+</html>

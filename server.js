@@ -26,7 +26,19 @@ db.exec(`
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
     updated_at INTEGER DEFAULT (unixepoch())
-  )
+  );
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    name          TEXT    NOT NULL DEFAULT '',
+    password_hash TEXT    NOT NULL,
+    created_at    INTEGER DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    id         TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at INTEGER NOT NULL
+  );
 `);
 
 const _get = db.prepare('SELECT value FROM kv WHERE key = ?');
@@ -46,25 +58,64 @@ function readState() {
 }
 function writeState(state) { _set.run('state', JSON.stringify(state)); }
 
-// ── Auth ───────────────────────────────────────────────────────────────────────
+// ── Auth — user accounts ───────────────────────────────────────────────────────
 
-// Cookie de sessão é um HMAC determinístico do token → stateless, sobrevive restart.
+const SESSION_TTL = 30 * 24 * 3600; // 30 dias em segundos
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(derived, 'hex'));
+}
+
+function createSession(userId) {
+  const id      = crypto.randomBytes(32).toString('hex');
+  const expires = Math.floor(Date.now() / 1000) + SESSION_TTL;
+  db.prepare('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)').run(id, userId, expires);
+  return id;
+}
+
+function getUserFromSession(sessionId) {
+  if (!sessionId) return null;
+  const row = db.prepare('SELECT user_id FROM sessions WHERE id = ? AND expires_at > unixepoch()').get(sessionId);
+  return row ? row.user_id : null;
+}
+
+function userCount() {
+  return db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+}
+
+// ── Auth — API_TOKEN (retrocompatibilidade) ────────────────────────────────────
+
 function sessionCookie() {
+  if (!API_TOKEN) return '';
   return crypto.createHmac('sha256', API_TOKEN).update('hfsto-browser').digest('hex');
 }
 
 function auth(req, res, next) {
-  if (!API_TOKEN) return next();
+  // 1. Sessão de usuário (contas cadastradas)
+  const sessId = req.cookies?.hfsto_sess;
+  if (sessId && getUserFromSession(sessId)) return next();
 
-  // Browser: cookie de sessão emitido no carregamento da página
-  const sid = req.cookies?.hfsto_sid;
-  if (sid && sid === sessionCookie()) return next();
+  // 2. API_TOKEN: cookie legado ou Bearer header
+  if (API_TOKEN) {
+    const sid = req.cookies?.hfsto_sid;
+    if (sid && sid === sessionCookie()) return next();
+    const header = req.headers['authorization'] || '';
+    if (header === `Bearer ${API_TOKEN}`) return next();
+  }
 
-  // Cliente externo: Bearer token
-  const header = req.headers['authorization'] || '';
-  if (header === `Bearer ${API_TOKEN}`) return next();
+  // 3. Modo aberto: sem API_TOKEN e sem usuários cadastrados
+  if (!API_TOKEN && userCount() === 0) return next();
 
-  res.status(401).json({ error: 'Unauthorized. Use: Authorization: Bearer <token>' });
+  res.status(401).json({ error: 'Unauthorized' });
 }
 
 // ── App ────────────────────────────────────────────────────────────────────────
@@ -100,7 +151,62 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-// Autenticação em todas as rotas /api (exceto /health já respondida)
+// ── Rotas de autenticação (sem proteção) ──────────────────────────────────────
+
+app.get('/api/auth/me', (req, res) => {
+  const sessId = req.cookies?.hfsto_sess;
+  const userId = getUserFromSession(sessId);
+  if (userId) {
+    const user = db.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?').get(userId);
+    if (user) return res.json({ ...user, mode: 'session' });
+  }
+  if (API_TOKEN) {
+    const sid    = req.cookies?.hfsto_sid;
+    const header = req.headers['authorization'] || '';
+    if ((sid && sid === sessionCookie()) || header === `Bearer ${API_TOKEN}`) {
+      return res.json({ id: 0, email: 'operator@hosto.local', name: 'Operador', mode: 'token' });
+    }
+  }
+  res.status(401).json({ error: 'not authenticated', hasUsers: userCount() > 0 });
+});
+
+app.post('/api/auth/signup', (req, res) => {
+  const { email, password, name } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'e-mail e senha são obrigatórios' });
+  if (password.length < 6)  return res.status(400).json({ error: 'senha muito curta (mín. 6)' });
+
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.trim());
+  if (existing) return res.status(409).json({ error: 'e-mail já cadastrado' });
+
+  const result = db.prepare('INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)').run(
+    email.trim().toLowerCase(), (name || '').trim(), hashPassword(password)
+  );
+  const sessId = createSession(result.lastInsertRowid);
+  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', path: '/', maxAge: SESSION_TTL * 1000 });
+  res.status(201).json({ ok: true });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'e-mail e senha são obrigatórios' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'e-mail ou senha inválidos' });
+  }
+  const sessId = createSession(user.id);
+  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', path: '/', maxAge: SESSION_TTL * 1000 });
+  res.json({ ok: true });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const sessId = req.cookies?.hfsto_sess;
+  if (sessId) db.prepare('DELETE FROM sessions WHERE id = ?').run(sessId);
+  res.clearCookie('hfsto_sess');
+  res.json({ ok: true });
+});
+
+// Autenticação em todas as rotas /api (exceto as de auth já respondidas)
 app.use('/api', auth);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

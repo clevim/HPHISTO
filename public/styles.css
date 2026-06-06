@@ -1813,3 +1813,38 @@ input[type="range"]::-moz-range-thumb {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .dash-details .grid [style*="span 2"] { grid-column: auto !important; }
 }
+
+/* ============================================================
+   AJUSTES — crachá do operador
+   ============================================================ */
+.op-card {
+  position: relative; display: flex; align-items: center; gap: 16px;
+  padding: 16px 18px 16px 22px;
+  background: linear-gradient(180deg, oklch(from var(--panel-head) l c h / 0.6), transparent 70%), var(--card);
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  box-shadow: var(--shadow-md); overflow: hidden;
+}
+.op-mag { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: linear-gradient(180deg, var(--accent), oklch(from var(--accent) calc(l - 0.18) c h)); }
+.op-card::before, .op-card::after { content: ""; position: absolute; width: 9px; height: 9px; pointer-events: none; }
+.op-card::before { top: 7px; right: 7px; border-top: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); }
+.op-card::after  { bottom: 7px; left: 11px; border-bottom: 1.5px solid var(--line-2); border-left: 1.5px solid var(--line-2); }
+.op-avatar { width: 52px; height: 52px; flex: none; border-radius: 3px; position: relative; background: var(--accent); display: grid; place-items: center; box-shadow: 0 2px 8px oklch(from var(--accent) l c h / 0.4); }
+.op-avatar span { font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.02em; color: var(--accent-ink); }
+.op-avatar::after { content: ""; position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 4px solid var(--accent); }
+.op-id { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.op-name { font-family: var(--font-display); font-weight: 700; font-size: 17px; letter-spacing: -0.01em; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-handle { font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.02em; }
+.op-tags { display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+.op-role { font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; letter-spacing: 0.1em; color: var(--accent-press); background: var(--accent-wash); padding: 3px 7px; border-radius: 2px; }
+.op-session { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em; color: var(--good); text-transform: uppercase; }
+.op-session i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 7px var(--good); animation: blink 2s steps(1) infinite; }
+.op-meta { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 9px; letter-spacing: 0.08em; color: var(--ink-3); text-transform: uppercase; flex: none; }
+.op-barcode { width: 74px; height: 20px; margin-top: 2px; background-image: repeating-linear-gradient(90deg, var(--ink-3) 0 1px, transparent 1px 2px, var(--ink-3) 2px 4px, transparent 4px 5px, var(--ink-3) 5px 8px, transparent 8px 10px); opacity: 0.55; }
+.op-logout { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 2px; border: 1px solid var(--line-2); background: transparent; color: var(--ink-2); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; transition: border-color .12s, color .12s, background .12s; }
+.op-logout svg { width: 15px; height: 15px; }
+.op-logout:hover { border-color: var(--danger); color: var(--danger); background: oklch(from var(--danger) l c h / 0.1); }
+@media (max-width: 620px) {
+  .op-meta { display: none; }
+  .op-card { gap: 12px; padding: 14px; flex-wrap: wrap; }
+  .op-logout { margin-left: auto; }
+}
