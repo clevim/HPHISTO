@@ -1,0 +1,45 @@
+name: hphisto
+services:
+  hphisto:
+    cpu_shares: 90
+    command: []
+    container_name: hphisto
+    deploy:
+      resources:
+        limits:
+          memory: 536870912
+        reservations:
+          devices: []
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/hphisto.db
+      - API_TOKEN=
+    image: ghcr.io/clevim/hphisto:latest
+    labels:
+      icon: https://raw.githubusercontent.com/clevim/hphisto/main/public/assets/icon-192.png
+    ports:
+      - target: 8080
+        published: "8080"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /media/ZimaOS-HD/AppData/hphisto/data
+        target: /data
+    devices: []
+    cap_add: []
+    network_mode: bridge
+    privileged: false
+x-casaos:
+  author: clevim
+  category: self
+  hostname: ""
+  icon: https://raw.githubusercontent.com/clevim/hphisto/main/public/assets/icon-192.png
+  index: /
+  is_uncontrolled: false
+  port_map: "8080"
+  scheme: http
+  store_app_id: hphisto
+  title:
+    custom: ""
+    en_us: HΦSTO
