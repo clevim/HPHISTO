@@ -1,7 +1,6 @@
 services:
   hfsto:
-    build: .
-    image: hfsto:latest
+    image: ${HFSTO_IMAGE:-ghcr.io/clevim/hphisto:latest}
     container_name: hfsto
     ports:
       - "8080:8080"
