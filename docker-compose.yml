@@ -3,11 +3,11 @@ services:
     image: ${HFSTO_IMAGE:-ghcr.io/clevim/hphisto:latest}
     container_name: hfsto
     ports:
-      - "8080:8080"
+      - "2346:2346"
     volumes:
       - hfsto_data:/data
     environment:
-      - PORT=8080
+      - PORT=2346
       - DB_PATH=/data/hphisto.db
       - NODE_ENV=production
       - COOKIE_SECURE=${COOKIE_SECURE:-true}

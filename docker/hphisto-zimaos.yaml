@@ -7,11 +7,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 536870912
+          memory: 1073741824
         reservations:
           devices: []
     environment:
-      - PORT=8080
+      - PORT=2346
       - DB_PATH=/data/hphisto.db
       - NODE_ENV=production
       - COOKIE_SECURE=true
@@ -21,8 +21,8 @@ services:
     labels:
       icon: https://raw.githubusercontent.com/clevim/hphisto/main/public/assets/icon-192.png
     ports:
-      - target: 8080
-        published: "8080"
+      - target: 2346
+        published: "2346"
         protocol: tcp
     restart: unless-stopped
     volumes:
@@ -40,7 +40,7 @@ x-casaos:
   icon: https://raw.githubusercontent.com/clevim/hphisto/main/public/assets/icon-192.png
   index: /
   is_uncontrolled: false
-  port_map: "8080"
+  port_map: "2346"
   scheme: http
   store_app_id: hphisto
   title:
