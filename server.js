@@ -139,6 +139,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// Guard: protege index.html — redireciona para Login/Cadastro se não autenticado
+// Deve ficar ANTES do express.static para interceptar antes de servir o arquivo
+app.get(['/', '/index.html'], (req, res, next) => {
+  if (req.query.demo === '1') return next();
+
+  const sessId = req.cookies?.hfsto_sess;
+  if (sessId && getUserFromSession(sessId)) return next();
+
+  if (API_TOKEN) {
+    if (userCount() === 0) {
+      const sid = req.cookies?.hfsto_sid;
+      if (sid && sid === sessionCookie()) return next();
+    }
+    const header = req.headers['authorization'] || '';
+    if (header === `Bearer ${API_TOKEN}`) return next();
+  }
+
+  if (!API_TOKEN && userCount() === 0) return next();
+
+  const uc = userCount();
+  return res.redirect(302, uc === 0 ? '/Cadastro.html' : '/Login.html');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // CORS — permite clientes externos usarem a API com o token
