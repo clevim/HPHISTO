@@ -63,6 +63,7 @@ app.use((req, res, next) => {
 
 // Guard: protege index.html — redireciona para Login/Cadastro se não autenticado
 app.get(['/', '/index.html'], (req, res, next) => {
+  if (req.query.demo === '1') return next(); // modo demo é público
   const sessId = req.cookies?.hfsto_sess;
   if (sessId && getUserFromSession(sessId)) return next();
   if (API_TOKEN) {

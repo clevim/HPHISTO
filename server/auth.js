@@ -2,7 +2,10 @@ const crypto = require('crypto');
 const { db } = require('./db');
 
 const API_TOKEN     = (process.env.API_TOKEN || '').trim();
-const COOKIE_SECURE = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true';
+// COOKIE_SECURE=false sempre desativa, COOKIE_SECURE=true sempre ativa,
+// sem a var usa NODE_ENV=production como padrão
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'
+  || (process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production');
 const SESSION_TTL   = 30 * 24 * 3600; // 30 dias em segundos
 
 // ── Senha ─────────────────────────────────────────────────────────────────────
