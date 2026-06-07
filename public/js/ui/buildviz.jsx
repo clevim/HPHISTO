@@ -165,24 +165,30 @@ function BuildChamber({ result, store, input, material }) {
   let gcoPaths = null, gcoH = 0;
   if (useGco) {
     const b = geoData.bounds;
-    const gW = Math.max(b.maxx - b.minx, 0.001);
-    const gD = Math.max(b.maxy - b.miny, 0.001);
+    // Recomputa bounds XY a partir das layers escolhidas — evita que linhas de purga
+    // do slicer (prime line na borda da mesa) inflacionem a escala e deixem o modelo minúsculo
+    let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
+    geoData.layers.forEach(l => l.pts.forEach(p => {
+      if(p[0]<bx0) bx0=p[0]; if(p[0]>bx1) bx1=p[0];
+      if(p[1]<by0) by0=p[1]; if(p[1]>by1) by1=p[1];
+    }));
+    const gW  = Math.max(bx1 - bx0, 0.001);
+    const gD  = Math.max(by1 - by0, 0.001);
     const gZr = Math.max(b.maxz - b.minz, 0.001);
+    const cxB = (bx0 + bx1) / 2, cyB = (by0 + by1) / 2;
     const xyScale = Math.min((W * 0.82) / gW, (D * 0.82) / gD);
-    const xyOffX = (W - gW * xyScale) / 2;
-    const xyOffY = (D - gD * xyScale) / 2;
-    // escala Z: ~2px/mm, mínimo 60px, máximo 212px
-    const zScale = Math.max(60 / gZr, Math.min(212 / gZr, 2));
+    // Z: cap em ~108px (~1.5× o footprint visual de 72px) para não parecer esticado
+    const zScale = Math.max(48 / gZr, Math.min(108 / gZr, 2.2));
     gcoH = gZr * zScale;
     const rot = tick * 0.09;
     const cosR = Math.cos(rot), sinR = Math.sin(rot);
     const cx = W / 2, cy = D / 2;
     gcoPaths = geoData.layers.map((layer) => {
-      const hz = (layer.z - b.minz) * zScale;
+      const hz = Math.max(0, (layer.z - b.minz) * zScale);
       let d = '';
       for (let k = 0; k < layer.pts.length; k++) {
-        const ux = (layer.pts[k][0] - b.minx) * xyScale + xyOffX;
-        const uy = (layer.pts[k][1] - b.miny) * xyScale + xyOffY;
+        const ux = (layer.pts[k][0] - cxB) * xyScale + cx;
+        const uy = (layer.pts[k][1] - cyB) * xyScale + cy;
         const rx = (ux - cx) * cosR - (uy - cy) * sinR + cx;
         const ry = (ux - cx) * sinR + (uy - cy) * cosR + cy;
         const p = proj(rx, ry, hz);

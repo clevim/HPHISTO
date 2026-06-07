@@ -189,10 +189,19 @@ window.CALC = (function () {
     layers.forEach(l => { zset[l.z.toFixed(2)] = 1; });
     const nLayers = Math.max(Object.keys(zset).length, full.length, 1);
     if (full.length === 0) return { nLayers, layers: [], bounds: { minx, maxx, miny, maxy, minz, maxz } };
-    // escolhe ~22 camadas distribuídas
-    const want = Math.min(22, full.length);
+    // Agrupa por nível Z (toFixed(2)) e escolhe o caminho mais longo por nível.
+    // Garante até 22 alturas distintas distribuídas do fundo ao topo — evita
+    // que muitos segmentos no mesmo Z (perímetros + recheio) monopolizem os slots.
+    const zMap = new Map();
+    full.forEach(l => {
+      const k = l.z.toFixed(2);
+      if (!zMap.has(k) || l.pts.length > zMap.get(k).pts.length) zMap.set(k, l);
+    });
+    const zLevels = [...zMap.keys()].sort((a, b) => parseFloat(a) - parseFloat(b));
+    const want = Math.min(22, zLevels.length);
     const chosen = [];
-    for (let i = 0; i < want; i++) chosen.push(full[Math.round(i * (full.length - 1) / (want - 1 || 1))]);
+    for (let i = 0; i < want; i++)
+      chosen.push(zMap.get(zLevels[Math.round(i * (zLevels.length - 1) / (want - 1 || 1))]));
     // simplifica cada camada (<=200 pts)
     const MAXP = 200;
     const simp = chosen.map(l => {
