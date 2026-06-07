@@ -171,9 +171,20 @@ app.get(['/', '/index.html'], (req, res, next) => {
     if (header === `Bearer ${API_TOKEN}`) return next();
   }
 
-  const uc = userCount();
-  return res.redirect(302, uc === 0 ? '/Cadastro.html' : '/Login.html');
+  return res.redirect(302, '/login');
 });
+
+// Subdomínio pedidos.* — serve o formulário público sem precisar de path na URL
+app.get('/', (req, res, next) => {
+  const host = (req.headers.host || '').split(':')[0];
+  if (host.startsWith('pedidos.')) return res.sendFile('Pedido.html', { root: path.join(__dirname, 'public') });
+  next();
+});
+
+// Rotas limpas — sem .html
+app.get('/login',    (_req, res) => res.sendFile('Login.html',    { root: path.join(__dirname, 'public') }));
+app.get('/cadastro', (_req, res) => res.sendFile('Cadastro.html', { root: path.join(__dirname, 'public') }));
+app.get('/pedidos',  (_req, res) => res.sendFile('Pedido.html',   { root: path.join(__dirname, 'public') }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 

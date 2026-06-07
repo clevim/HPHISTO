@@ -207,6 +207,60 @@
       .bay { min-height: 210px; }
       .pick.tri { grid-template-columns: 1fr; }
     }
+
+    /* ── SMARTPHONE (≤ 480px) ───────────────────────────────────────────── */
+    @media (max-width: 480px) {
+      body { padding: 0; align-items: flex-start; }
+      .order-deck {
+        border-radius: 0; border-left: none; border-right: none;
+        min-height: 100svh; width: 100%;
+      }
+      /* Remove corner decorations que ficam cortados sem borda */
+      .order-deck::before, .order-deck::after, .screw { display: none; }
+
+      /* Aside compacto — janela menor para liberar espaço pro form */
+      .build-aside { padding: 14px 16px 10px; gap: 8px; }
+      .bay { min-height: 140px; }
+      .bay-tag { font-size: 7.5px; }
+      .bed-readout { font-size: 7.5px; gap: 8px; }
+      .aside-status { padding-top: 8px; font-size: 8.5px; }
+      .aside-status .ver { display: none; }
+      .brand-tt { font-size: 14px; }
+
+      /* Form com padding lateral reduzido */
+      .order-form { padding: 20px 18px 20px; }
+      .form-head h1 { font-size: 20px; }
+      .theme-switch { top: 12px; right: 14px; }
+
+      /* Pick cards mais compactos — mantém 2 colunas mas sem overflow */
+      .pick { gap: 7px; }
+      .pick-card { padding: 9px 10px; gap: 3px; }
+      .pick-card .pc-t { font-size: 12px; }
+      .pick-card .pc-s { font-size: 9px; line-height: 1.25; }
+      .pick-card .pc-spec { font-size: 8.5px; }
+
+      /* Tabs de modelo */
+      .model-tabs button { padding: 6px 11px; font-size: 9.5px; }
+
+      /* Dropzone */
+      .dropzone { padding: 16px 12px; }
+      .dropzone .dz-main { font-size: 10.5px; }
+
+      /* Botão enviar */
+      .btn-send { padding: 13px; }
+
+      /* Ticket */
+      .ticket-body { padding: 12px 18px 4px; }
+      .ticket-top { padding: 18px 18px 14px; }
+      .ticket-foot { padding: 12px 18px 18px; }
+    }
+
+    /* ── TELAS MUITO PEQUENAS (≤ 360px) ────────────────────────────────── */
+    @media (max-width: 360px) {
+      .pick { grid-template-columns: 1fr; }
+      .bay { min-height: 110px; }
+    }
+
     @media (prefers-reduced-motion: reduce) { .bay-tag .led, .order-deck { animation: none; } }
   </style>
 </head>
@@ -354,7 +408,7 @@
       <div class="form-foot">
         <span>HΦSTO Systems</span>
         <span class="spacer"></span>
-        <a href="Login.html">Sou a oficina ▸ entrar</a>
+        <a href="/login">Sou a oficina ▸ entrar</a>
       </div>
     </section>
   </main>
