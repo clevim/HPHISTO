@@ -91,10 +91,8 @@ function QuoteScreen({ quote, onNavigate }) {
   const fmt  = (d) => d.toLocaleDateString(store.settings.lang === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: 'long', year: 'numeric' });
   const fmtS = (d) => d.toLocaleDateString(store.settings.lang === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: '2-digit', year: '2-digit' });
 
-  const [present, setPresent] = useState(false);
   const [building, setBuilding] = useState(true);
   useEffect(() => { setBuilding(true); const tm = setTimeout(() => setBuilding(false), 1500); return () => clearTimeout(tm); }, [quote]);
-  const replay = () => { setBuilding(true); setTimeout(() => setBuilding(false), 1500); };
 
   const client = quote.clientId ? (store.clients || []).find(c => c.id === quote.clientId) : null;
   const quoteNum = quote.id.slice(-6).toUpperCase();
@@ -105,19 +103,11 @@ function QuoteScreen({ quote, onNavigate }) {
   const qrSvg = (window.FX && window.FX.qrSvg) ? FX.qrSvg(qrText, '#221d16', '#f7f3ea') : '';
 
   return (
-    <div className={'page page-narrow quote-page' + (present ? ' present' : '')}>
+    <div className="page page-narrow quote-page">
       <div className="flex between no-print quote-toolbar" style={{ marginBottom: 16 }}>
         <Button variant="subtle" icon="chevron" onClick={() => onNavigate('history')} style={{ transform: 'none' }}>{t('back')}</Button>
-        <div className="flex quote-act-bar" style={{ gap: 8 }}>
-          <Button variant="ghost" icon="play" onClick={replay} title={t('replay')}>{t('replay')}</Button>
-          <Button variant="ghost" icon="maximize" onClick={() => setPresent(true)} title={t('present_mode')}>{t('present_mode')}</Button>
-          <Button variant="primary" icon="download" onClick={() => window.print()}>{t('print_quote')}</Button>
-        </div>
+        <Button variant="primary" icon="download" onClick={() => window.print()}>{t('print_quote')}</Button>
       </div>
-
-      {present && (
-        <button className="present-exit no-print" onClick={() => setPresent(false)}><Icon name="x" />{t('exit_present')}</button>
-      )}
 
       <div className={'card quote-doc' + (building ? ' building' : '')} id="quote-doc">
         <div className="print-progress"><span className="pp-head" /></div>
