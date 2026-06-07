@@ -87,11 +87,11 @@ function QuoteScreen({ quote, onNavigate }) {
 
   return (
     <div className={'page page-narrow quote-page' + (present ? ' present' : '')}>
-      <div className="flex between no-print" style={{ marginBottom: 16 }}>
+      <div className="flex between no-print quote-toolbar" style={{ marginBottom: 16 }}>
         <Button variant="subtle" icon="chevron" onClick={() => onNavigate('history')} style={{ transform: 'none' }}>{t('back')}</Button>
-        <div className="flex" style={{ gap: 8 }}>
-          <Button variant="ghost" icon="play" onClick={replay}>{t('replay')}</Button>
-          <Button variant="ghost" icon="maximize" onClick={() => setPresent(true)}>{t('present_mode')}</Button>
+        <div className="flex quote-act-bar" style={{ gap: 8 }}>
+          <Button variant="ghost" icon="play" onClick={replay} title={t('replay')}>{t('replay')}</Button>
+          <Button variant="ghost" icon="maximize" onClick={() => setPresent(true)} title={t('present_mode')}>{t('present_mode')}</Button>
           <Button variant="primary" icon="download" onClick={() => window.print()}>{t('print_quote')}</Button>
         </div>
       </div>

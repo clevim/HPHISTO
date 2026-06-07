@@ -2011,3 +2011,32 @@ input[type="range"]::-moz-range-thumb {
 .job-due svg { width: 11px; height: 11px; }
 .job-due.urg { color: var(--danger); }
 .job-due.urg svg { color: var(--danger); }
+
+/* ── QuoteScreen — mobile ─────────────────────────────────────────────────── */
+
+/* barra de ações: no mobile os botões "fantasma" ficam icon-only */
+@media (max-width: 600px) {
+  .quote-act-bar .btn-ghost { padding: 8px; min-width: 0; }
+  .quote-act-bar .btn-ghost svg { width: 16px; height: 16px; }
+  /* esconde o texto dos botões ghost — title="..." garante acessibilidade */
+  .quote-act-bar .btn-ghost > :not(svg) { display: none; }
+}
+
+/* tabela do orçamento: esconde coluna Subtotal e compacta em telas estreitas */
+@media (max-width: 560px) {
+  .qd-body { padding: 16px; }
+  .qd-row { grid-template-columns: 1fr 36px 90px; gap: 6px; }
+  /* oculta a 4ª coluna (subtotal — igual ao preço unitário × qty) */
+  .qd-row > span:nth-child(4),
+  .qd-row > .qd-itemname + span + span + span { display: none; }
+  .qd-thead > span:nth-child(4) { display: none; }
+  .qd-totals { max-width: 100%; }
+  /* cabeçalho do documento: empilha logo e datas em coluna */
+  .qd-header { flex-direction: column; gap: 12px; }
+  .qd-meta { text-align: left; align-items: flex-start; }
+  /* stats do dossiê: 2×2 em vez de 4 colunas */
+  .cd-stats { grid-template-columns: repeat(2, 1fr); }
+  /* rodapé dos cards de pedido: permite quebrar linha */
+  .ord-foot { flex-wrap: wrap; }
+  .ord-when { width: 100%; order: 99; padding-top: 4px; border-top: 1px solid var(--line); }
+}
