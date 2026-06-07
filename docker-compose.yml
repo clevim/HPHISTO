@@ -9,7 +9,10 @@ services:
     environment:
       - PORT=8080
       - DB_PATH=/data/hphisto.db
-      - API_TOKEN=${API_TOKEN:-}   # defina no .env ou passe direto
+      - NODE_ENV=production
+      - COOKIE_SECURE=true
+      - API_TOKEN=${API_TOKEN:-}      # defina no .env — gere com: openssl rand -hex 32
+      - CORS_ORIGIN=${CORS_ORIGIN:-*} # ex: https://seu-dominio.com
     restart: unless-stopped
 
 volumes:

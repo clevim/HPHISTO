@@ -19,6 +19,6 @@ ENV DB_PATH=/data/hphisto.db
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://localhost:8080/api/health >/dev/null 2>&1 || exit 1
 
 CMD ["node", "server.js"]

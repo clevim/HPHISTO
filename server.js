@@ -14,9 +14,11 @@ const cookieParser = require('cookie-parser');
 const path         = require('path');
 const crypto       = require('crypto');
 
-const PORT      = Number(process.env.PORT) || 8080;
-const DB_PATH   = process.env.DB_PATH || path.join(__dirname, 'data', 'hphisto.db');
-const API_TOKEN = (process.env.API_TOKEN || '').trim();
+const PORT         = Number(process.env.PORT) || 8080;
+const DB_PATH      = process.env.DB_PATH || path.join(__dirname, 'data', 'hphisto.db');
+const API_TOKEN    = (process.env.API_TOKEN || '').trim();
+const COOKIE_SECURE = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === 'true';
+const CORS_ORIGIN   = (process.env.CORS_ORIGIN || '*').trim();
 
 // ── Banco de dados ─────────────────────────────────────────────────────────────
 
@@ -107,6 +109,37 @@ function userCount() {
   return db.prepare('SELECT COUNT(*) as c FROM users').get().c;
 }
 
+// ── Rate limiting (in-process, fixed window por IP) ───────────────────────────
+
+function makeRateLimiter(max, windowMs) {
+  const store = new Map();
+  return (req, res, next) => {
+    const ip = (
+      req.headers['cf-connecting-ip'] ||
+      req.headers['x-forwarded-for']  ||
+      req.socket.remoteAddress || ''
+    ).split(',')[0].trim();
+    const now = Date.now();
+    let e = store.get(ip);
+    if (!e || now > e.reset) {
+      e = { count: 0, reset: now + windowMs };
+      store.set(ip, e);
+      if (store.size > 5000) for (const [k, v] of store) if (now > v.reset) store.delete(k);
+    }
+    e.count++;
+    if (e.count > max) {
+      const retry = Math.ceil((e.reset - now) / 1000);
+      return res.status(429).set('Retry-After', String(retry))
+                .json({ error: 'Muitas tentativas — aguarde antes de tentar novamente.' });
+    }
+    next();
+  };
+}
+
+const loginLimiter = makeRateLimiter(10, 15 * 60 * 1000); // 10 tentativas / 15 min
+const signupLimiter = makeRateLimiter(3,  60 * 60 * 1000); // 3 cadastros   /  1 h
+const orderLimiter  = makeRateLimiter(30, 60 * 60 * 1000); // 30 pedidos    /  1 h
+
 // ── Auth — API_TOKEN (retrocompatibilidade) ────────────────────────────────────
 
 function sessionCookie() {
@@ -141,14 +174,26 @@ function auth(req, res, next) {
 
 const app = express();
 
+app.set('trust proxy', 1); // Cloudflare / reverse proxy → req.ip correto
+
+// Headers de segurança HTTP
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  next();
+});
+
 app.use(cookieParser());
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 // Cookie legado de sessão — só usado quando não há usuários cadastrados (setup antigo)
 app.use((req, res, next) => {
   if (API_TOKEN && req.method === 'GET' && !req.cookies?.hfsto_sid && userCount() === 0) {
     res.cookie('hfsto_sid', sessionCookie(), {
-      httpOnly: true, sameSite: 'strict', path: '/',
+      httpOnly: true, sameSite: 'strict', secure: COOKIE_SECURE, path: '/',
     });
   }
   next();
@@ -157,8 +202,6 @@ app.use((req, res, next) => {
 // Guard: protege index.html — redireciona para Login/Cadastro se não autenticado
 // Deve ficar ANTES do express.static para interceptar antes de servir o arquivo
 app.get(['/', '/index.html'], (req, res, next) => {
-  if (req.query.demo === '1') return next();
-
   const sessId = req.cookies?.hfsto_sess;
   if (sessId && getUserFromSession(sessId)) return next();
 
@@ -189,8 +232,15 @@ app.get('/pedidos',  (_req, res) => res.sendFile('Pedido.html',   { root: path.j
 app.use(express.static(path.join(__dirname, 'public')));
 
 // CORS — permite clientes externos usarem a API com o token
+// Em produção, defina CORS_ORIGIN com o domínio exato (ex: https://meusite.com)
 app.use('/api', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (CORS_ORIGIN === '*') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && origin === CORS_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -227,10 +277,18 @@ app.get('/api/auth/me', (req, res) => {
   res.status(401).json({ error: 'not authenticated', hasUsers: userCount() > 0 });
 });
 
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', signupLimiter, (req, res) => {
   const { email, password, name } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'e-mail e senha são obrigatórios' });
   if (password.length < 6)  return res.status(400).json({ error: 'senha muito curta (mín. 6)' });
+
+  // Após o primeiro cadastro, somente o Bearer token (API_TOKEN) pode criar mais usuários
+  if (userCount() > 0) {
+    const header = req.headers['authorization'] || '';
+    if (!API_TOKEN || header !== `Bearer ${API_TOKEN}`) {
+      return res.status(403).json({ error: 'Cadastro desativado — sistema já configurado. Use o token de API para criar usuários adicionais.' });
+    }
+  }
 
   const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.trim());
   if (existing) return res.status(409).json({ error: 'e-mail já cadastrado' });
@@ -239,11 +297,11 @@ app.post('/api/auth/signup', (req, res) => {
     email.trim().toLowerCase(), (name || '').trim(), hashPassword(password)
   );
   const sessId = createSession(result.lastInsertRowid);
-  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', path: '/', maxAge: SESSION_TTL * 1000 });
+  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', secure: COOKIE_SECURE, path: '/', maxAge: SESSION_TTL * 1000 });
   res.status(201).json({ ok: true });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', loginLimiter, (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'e-mail e senha são obrigatórios' });
 
@@ -252,7 +310,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'e-mail ou senha inválidos' });
   }
   const sessId = createSession(user.id);
-  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', path: '/', maxAge: SESSION_TTL * 1000 });
+  res.cookie('hfsto_sess', sessId, { httpOnly: true, sameSite: 'strict', secure: COOKIE_SECURE, path: '/', maxAge: SESSION_TTL * 1000 });
   res.json({ ok: true });
 });
 
@@ -266,7 +324,7 @@ app.post('/api/auth/logout', (req, res) => {
 // ── Pedidos do balcão público ──────────────────────────────────────────────────
 
 // POST /api/orders — público (sem auth): cliente envia pedido pelo balcão
-app.post('/api/orders', (req, res) => {
+app.post('/api/orders', orderLimiter, (req, res) => {
   const { name, contact, deadline, focus, color, model } = req.body || {};
   if (!name || !contact) return res.status(400).json({ error: 'nome e contato são obrigatórios' });
 
@@ -311,8 +369,11 @@ app.get('/api/orders', (_req, res) => {
 });
 
 // PATCH /api/orders/:id — atualiza status, seen ou quoteId (requer auth)
+const VALID_ORDER_STATUSES = new Set(['novo', 'em_andamento', 'aguardando', 'concluido', 'cancelado']);
 app.patch('/api/orders/:id', (req, res) => {
   const { status, seen, quoteId, clientId } = req.body || {};
+  if (status !== undefined && !VALID_ORDER_STATUSES.has(status))
+    return res.status(400).json({ error: `status inválido. Valores aceitos: ${[...VALID_ORDER_STATUSES].join(', ')}` });
   const sets = []; const params = [];
   if (status   !== undefined) { sets.push('status = ?');   params.push(status); }
   if (seen     !== undefined) { sets.push('seen = ?');     params.push(seen ? 1 : 0); }

@@ -434,6 +434,7 @@
   (function () {
     const NS = 'http://www.w3.org/2000/svg';
     const $ = (id) => document.getElementById(id);
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
     /* ---------- tema ---------- */
     const sw = $('themeSwitch');
@@ -673,7 +674,7 @@
         dz.style.display = 'none';
         filePicked.style.display = '';
         const note = f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
-        filePicked.innerHTML = `<div class="dz-file"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><div class="fn"><b>${f.name}</b><span id="dzNote">${fmtSize(f.size)} · ${note}</span></div><button type="button" class="rm" id="rmFile" aria-label="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
+        filePicked.innerHTML = `<div class="dz-file"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><div class="fn"><b>${esc(f.name)}</b><span id="dzNote">${esc(fmtSize(f.size))} · ${esc(note)}</span></div><button type="button" class="rm" id="rmFile" aria-label="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
         $('rmFile').addEventListener('click', () => { setFile(null); fileInput.value=''; update(); });
         if (f.size <= EMBED_LIMIT) {
           const fr = new FileReader();
@@ -790,12 +791,12 @@
       const dl = order.deadline ? new Date(order.deadline + 'T00:00:00').toLocaleDateString('pt-BR') : 'a combinar';
       const swHtml = order.color === 'color' ? `<span class="sw sw-rainbow"></span>` : '';
       $('tkBody').innerHTML = `
-        <div class="trow"><span class="tk">Cliente</span><span class="tv">${order.name}</span></div>
-        <div class="trow"><span class="tk">Contato</span><span class="tv">${order.contact}</span></div>
-        <div class="trow"><span class="tk">Modelo</span><span class="tv" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${order.model.value}</span></div>
-        <div class="trow"><span class="tk">Prazo</span><span class="tv">${dl}</span></div>
-        <div class="trow"><span class="tk">Perfil</span><span class="tv">${focusLabel}</span></div>
-        <div class="trow"><span class="tk">Cor</span><span class="tv">${swHtml}${colorLabel}</span></div>`;
+        <div class="trow"><span class="tk">Cliente</span><span class="tv">${esc(order.name)}</span></div>
+        <div class="trow"><span class="tk">Contato</span><span class="tv">${esc(order.contact)}</span></div>
+        <div class="trow"><span class="tk">Modelo</span><span class="tv" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(order.model.value)}</span></div>
+        <div class="trow"><span class="tk">Prazo</span><span class="tv">${esc(dl)}</span></div>
+        <div class="trow"><span class="tk">Perfil</span><span class="tv">${esc(focusLabel)}</span></div>
+        <div class="trow"><span class="tk">Cor</span><span class="tv">${swHtml}${esc(colorLabel)}</span></div>`;
       $('ticketScrim').classList.add('on');
     }
 
