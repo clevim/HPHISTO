@@ -158,7 +158,41 @@ function BuildChamber({ result, store, input, material }) {
     return { d: d + 'Z', zp: L.zp, i };
   }) : null;
   const useFun = isModel && funPaths && funPaths.length > 1;
-  const visH = useFun ? funHpx : topZ;
+
+  // G-code caminhos reais — renderiza as layers do parseGcodeGeo
+  const geoData = isModel && input.gcodeGeo && input.gcodeGeo.layers && input.gcodeGeo.layers.length > 0 ? input.gcodeGeo : null;
+  const useGco = !!geoData;
+  let gcoPaths = null, gcoH = 0;
+  if (useGco) {
+    const b = geoData.bounds;
+    const gW = Math.max(b.maxx - b.minx, 0.001);
+    const gD = Math.max(b.maxy - b.miny, 0.001);
+    const gZr = Math.max(b.maxz - b.minz, 0.001);
+    const xyScale = Math.min((W * 0.82) / gW, (D * 0.82) / gD);
+    const xyOffX = (W - gW * xyScale) / 2;
+    const xyOffY = (D - gD * xyScale) / 2;
+    // escala Z: ~2px/mm, mínimo 60px, máximo 212px
+    const zScale = Math.max(60 / gZr, Math.min(212 / gZr, 2));
+    gcoH = gZr * zScale;
+    const rot = tick * 0.09;
+    const cosR = Math.cos(rot), sinR = Math.sin(rot);
+    const cx = W / 2, cy = D / 2;
+    gcoPaths = geoData.layers.map((layer) => {
+      const hz = (layer.z - b.minz) * zScale;
+      let d = '';
+      for (let k = 0; k < layer.pts.length; k++) {
+        const ux = (layer.pts[k][0] - b.minx) * xyScale + xyOffX;
+        const uy = (layer.pts[k][1] - b.miny) * xyScale + xyOffY;
+        const rx = (ux - cx) * cosR - (uy - cy) * sinR + cx;
+        const ry = (ux - cx) * sinR + (uy - cy) * cosR + cy;
+        const p = proj(rx, ry, hz);
+        d += (k === 0 ? 'M ' : 'L ') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
+      }
+      return { d: d + 'Z', hz };
+    });
+  }
+
+  const visH = useGco ? gcoH : (useFun ? funHpx : topZ);
 
   // faces visíveis: FRENTE (y=D) e DIREITA (x=W)
   const frontFace = (z0, z1) => `${pt(0, D, z0)} ${pt(W, D, z0)} ${pt(W, D, z1)} ${pt(0, D, z1)}`;
@@ -194,12 +228,12 @@ function BuildChamber({ result, store, input, material }) {
   const dimTopP = proj(W + be, -be, Math.max(topZ, 6));
 
   return (
-    <div className={'chamber' + (hasData ? '' : ' idle')}>
+    <div className={'chamber' + (hasData || useGco ? '' : ' idle')}>
       {/* título do desenho / readout */}
       <div className="chamber-head">
         <div className="chamber-status">
-          <span className="led" />{hasData ? (t('printing_cost') || 'IMPRIMINDO') : (t('standby') || 'EM ESPERA')}
-          <span style={{ opacity: .5, marginLeft: 4 }}>· {useFun ? funPaths.length + ' ' + (t('layers_n') || 'CAMADAS') : result.lines.length + ' ' + (t('cost_items') || 'CUSTOS')}</span>
+          <span className="led" />{hasData ? (t('printing_cost') || 'IMPRIMINDO') : (useGco ? (t('gcode_loaded') || 'G-CODE') : (t('standby') || 'EM ESPERA'))}
+          <span style={{ opacity: .5, marginLeft: 4 }}>· {useGco ? geoData.nLayers + ' ' + (t('layers_n') || 'CAMADAS') : useFun ? funPaths.length + ' ' + (t('layers_n') || 'CAMADAS') : result.lines.length + ' ' + (t('cost_items') || 'CUSTOS')}</span>
         </div>
         <div className="lcd">
           <span className="lcd-cur">{store.curSymbol()}</span>
@@ -261,8 +295,25 @@ function BuildChamber({ result, store, input, material }) {
             </g>
           )}
 
+          {/* G-CODE modelo real — layers do parseGcodeGeo */}
+          {isModel && useGco && gcoPaths && gcoPaths.length > 0 && (
+            <g className="iso-gco">
+              {gcoPaths.map((L, i) => {
+                const tt = i / (gcoPaths.length - 1 || 1);
+                return (
+                  <path key={i} d={L.d}
+                    fill={mColor} fillOpacity={0.04 + 0.1 * tt}
+                    stroke={mColor} strokeWidth={i === gcoPaths.length - 1 ? 1.5 : 0.7}
+                    strokeOpacity={0.28 + 0.68 * tt} strokeLinejoin="round" />
+                );
+              })}
+              <path d={gcoPaths[gcoPaths.length - 1].d} fill={mColor} fillOpacity="0.55"
+                stroke={lighter(mColor, 28)} strokeWidth="1.5" strokeLinejoin="round" />
+            </g>
+          )}
+
           {/* FORMA DIVERTIDA generativa (muda sozinha) */}
-          {hasData && isModel && useFun && (
+          {hasData && isModel && !useGco && useFun && (
             <g className="iso-fun">
               {funPaths.map((L, i) => {
                 const tt = i / (funPaths.length - 1 || 1);
@@ -301,9 +352,9 @@ function BuildChamber({ result, store, input, material }) {
 
         {/* bobina girando */}
         <div className="chamber-spool" />
-        <div className="bed-temp">{isModel && useFun ? '▸ ' + funPaths.length + ' CAMADAS · ' : ''}BED {hasData ? '60°' : '—'} · {result.weight ? result.weight.toFixed(0) + 'G' : '0G'} · {result.hours ? result.hours.toFixed(1) + 'H' : '0H'}</div>
+        <div className="bed-temp">{useGco ? '▸ ' + geoData.nLayers + ' CAM · ' : isModel && useFun ? '▸ ' + funPaths.length + ' CAMADAS · ' : ''}BED {hasData ? '60°' : '—'} · {result.weight ? result.weight.toFixed(0) + 'G' : '0G'} · {result.hours ? result.hours.toFixed(1) + 'H' : '0H'}</div>
 
-        {!hasData && <div className="bay-empty">{t('empty_calc')}</div>}
+        {!hasData && !useGco && <div className="bay-empty">{t('empty_calc')}</div>}
       </div>
     </div>
   );

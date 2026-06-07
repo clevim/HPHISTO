@@ -451,6 +451,7 @@
 
     /* ---------- estado do pedido ---------- */
     let tick = 0, shapeSeed = Math.floor(Math.random()*99999);
+    let gcodeModel = null; // preenchido quando o arquivo for .gcode
     const state = { name:'', contact:'', modelMode:'file', file:null, fileData:null, link:'', deadline:'', focus:'', color:'' };
 
     /* ---------- validação ---------- */
@@ -525,12 +526,154 @@
     function darker(c,p){ return `color-mix(in oklab, ${c}, #000 ${p}%)`; }
     function lighter(c,p){ return `color-mix(in oklab, ${c}, #fff ${p}%)`; }
 
+    /* ============================================================
+       G-CODE — parser de camadas + renderizador isométrico rotativo
+       Extrai caminhos de extrusão por altura Z, normaliza no espaço
+       da mesa e projeta isometricamente com rotação temporal.
+       ============================================================ */
+    function parseGcode(text) {
+      const MAX_LAYERS = 150, MAX_PATHS = 22, MAX_PTS = 90;
+      const allLayers = [];
+      let curLayer = null, curPath = null;
+      let lx = 0, ly = 0, lz = -1, le = 0;
+      let relE = true; // M83 é padrão nos slicers modernos (Cura, PrusaSlicer, Bambu)
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+      const finLayer = () => {
+        if (curPath && curPath.length < 4) curLayer && curLayer.paths.pop();
+        if (curLayer && curLayer.paths.length) allLayers.push(curLayer);
+        curLayer = null; curPath = null;
+      };
+
+      // Limita texto para não bloquear UI em arquivos imensos
+      const src = text.length > 6e6 ? text.slice(0, 6e6) : text;
+      for (const rawLn of src.split('\n')) {
+        let ln = rawLn;
+        const sc = ln.indexOf(';'); if (sc >= 0) ln = ln.slice(0, sc);
+        ln = ln.trim(); if (!ln) continue;
+        const tok = ln.split(/\s+/);
+        const cmd = tok[0].toUpperCase();
+
+        if (cmd === 'M82') { relE = false; continue; }
+        if (cmd === 'M83') { relE = true;  continue; }
+        if (cmd === 'G92') {
+          for (let i = 1; i < tok.length; i++)
+            if (tok[i] && tok[i][0].toUpperCase() === 'E') le = parseFloat(tok[i].slice(1)) || 0;
+          continue;
+        }
+        if (cmd !== 'G0' && cmd !== 'G1') continue;
+
+        let nx = lx, ny = ly, nz = lz, ne = le;
+        let hZ = false, hE = false, hXY = false;
+        for (let i = 1; i < tok.length; i++) {
+          const t = tok[i]; if (!t) continue;
+          const v = parseFloat(t.slice(1)); if (isNaN(v)) continue;
+          switch (t[0].toUpperCase()) {
+            case 'X': nx = v; hXY = true; break;
+            case 'Y': ny = v; hXY = true; break;
+            case 'Z': nz = v; hZ  = true; break;
+            case 'E': ne = relE ? le + v : v; hE = true; break;
+          }
+        }
+
+        // Mudança de camada: Z sobe
+        if (hZ && nz > lz + 0.001) { finLayer(); lz = nz; }
+
+        // Extrusão real: G1 com E positivo e movimento XY
+        const ext = cmd === 'G1' && hE && ne > le + 0.0001 && hXY;
+        if (ext) {
+          if (!curLayer) curLayer = { z: lz, paths: [] };
+          if (!curPath && curLayer.paths.length < MAX_PATHS) {
+            curPath = [lx, ly]; curLayer.paths.push(curPath);
+          }
+          if (curPath && curPath.length < MAX_PTS * 2) {
+            curPath.push(nx, ny);
+            if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
+            if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
+          }
+        } else {
+          // Travel move — fecha o caminho atual
+          if (curPath && curPath.length < 4 && curLayer) curLayer.paths.pop();
+          curPath = null;
+        }
+        if (hXY) { lx = nx; ly = ny; }
+        if (hE) le = ne;
+      }
+      finLayer();
+
+      // Sub-amostragem de camadas se exceder o limite
+      let layers = allLayers;
+      if (layers.length > MAX_LAYERS) {
+        const step = layers.length / MAX_LAYERS;
+        layers = Array.from({ length: MAX_LAYERS }, (_, i) =>
+          allLayers[Math.min(Math.floor(i * step), allLayers.length - 1)]
+        );
+      }
+
+      const scX = (maxX - minX) || 1, scY = (maxY - minY) || 1;
+      return {
+        layers, totalLayers: allLayers.length,
+        cx: (minX + maxX) / 2, cy: (minY + maxY) / 2,
+        // escala: encaixa o maior eixo dentro de 82% da mesa
+        scale: Math.min((W * 0.82) / scX, (D * 0.82) / scY),
+        zMin: layers.length ? layers[0].z : 0,
+        zMax: layers.length ? layers[layers.length - 1].z : 1,
+      };
+    }
+
+    // Renderiza as camadas G-code com rotação temporal e ciclagem de cor
+    // Retorna topZ (px) para posicionar o cabeçote
+    function drawGcodeShape(frac, time) {
+      const m = gcodeModel;
+      const nShow = Math.max(1, Math.round(frac * m.layers.length));
+      const vis = m.layers.slice(0, nShow);
+      const zRange = (m.zMax - m.zMin) || 1;
+      const zScale = 185 / zRange; // 185px = altura máxima na viewport
+
+      // Rotação lenta no plano XY (equivale a girar o modelo no espaço 3D)
+      const rot = time * 0.28;
+      const cosR = Math.cos(rot), sinR = Math.sin(rot);
+      const mapPt = (px, py) => [
+        W / 2 + ((px - m.cx) * m.scale) * cosR - ((py - m.cy) * m.scale) * sinR,
+        D / 2 + ((px - m.cx) * m.scale) * sinR + ((py - m.cy) * m.scale) * cosR,
+      ];
+
+      const isoG = el('g', null, 'iso-fun');
+      vis.forEach((layer, i) => {
+        const tt    = i / (vis.length - 1 || 1);
+        const lc    = layerColor(tt, time);
+        const zPx   = (layer.z - m.zMin) * zScale;
+        const isTop = i === vis.length - 1;
+        let d = '';
+        for (const path of layer.paths) {
+          let first = true;
+          for (let pi = 0; pi < path.length - 1; pi += 2) {
+            const [tx, ty] = mapPt(path[pi], path[pi + 1]);
+            const p = proj(tx, ty, zPx);
+            d += (first ? 'M ' : 'L ') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
+            first = false;
+          }
+        }
+        if (!d) return;
+        isoG.appendChild(el('path', {
+          d, fill: lc,
+          'fill-opacity':   isTop ? '0.45' : (0.05 + 0.12 * tt).toFixed(3),
+          stroke: lc,
+          'stroke-width':   isTop ? '1.6'  : '0.9',
+          'stroke-opacity': (0.30 + 0.60 * tt).toFixed(3),
+          'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+        }));
+      });
+      bay.appendChild(isoG);
+      return vis.length ? (vis[vis.length - 1].z - m.zMin) * zScale : 0;
+    }
+
     function drawBay() {
       const c = checks();
       const done = Object.values(c).filter(Boolean).length;
       const frac = done / 6;
       const maxH = 200;
-      const topZ = frac * maxH;
+      let topZ = frac * maxH;
       const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'orange';
 
       bay.textContent = '';
@@ -560,13 +703,23 @@
       const layerStep = state.focus === 'detail' ? 4.4 : state.focus === 'function' ? 9 : 6;
       const cx = W/2, cy = D/2;
 
-      if (topZ < 4) {
-        // ainda nada impresso → silhueta orgânica fantasma na mesa
+      if (gcodeModel && gcodeModel.layers.length > 0) {
+        // ── MODO G-CODE: caminhos reais do arquivo, girando no tempo ──
+        if (frac > 0) {
+          topZ = drawGcodeShape(frac, time);
+        } else {
+          // Formulário ainda vazio — mostra silhueta fantasma
+          const ghost = genOrganic(3, shapeSeed, time, cx, cy, 6);
+          let d=''; ghost.layers[0].ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],0.4); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
+          bay.appendChild(el('path', { d:d+'Z' }, 'ghost-foot'));
+        }
+      } else if (topZ < 4) {
+        // ── MODO ORGÂNICO: nada preenchido — silhueta fantasma ──
         const ghost = genOrganic(3, shapeSeed, time, cx, cy, 6);
         let d=''; ghost.layers[0].ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],0.4); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
         bay.appendChild(el('path', { d:d+'Z' }, 'ghost-foot'));
       } else {
-        // nº de camadas cresce com o preenchimento e densifica conforme o foco
+        // ── MODO ORGÂNICO: cresce com o preenchimento do formulário ──
         const nLayers = Math.max(3, Math.min(60, Math.round(topZ / layerStep)));
         const fun = genOrganic(nLayers, shapeSeed, time, cx, cy, topZ);
         const paths = fun.layers.map((L) => {
@@ -584,7 +737,6 @@
             'stroke-opacity': (0.45 + 0.45*tt).toFixed(3),
           }));
         });
-        // tampa do topo destacada
         const topC = layerColor(1, time);
         part.appendChild(el('path', { d: paths[paths.length-1], fill: lighter(topC, hasModel?16:8), 'fill-opacity':0.5, stroke: lighter(topC,32), 'stroke-width':1.3 }));
         bay.appendChild(part);
@@ -604,7 +756,9 @@
 
       // HUD
       $('bayPct').textContent = Math.round(frac*100) + '%';
-      $('roLayer').textContent = state.focus === 'detail' ? '0.08mm' : state.focus === 'function' ? '0.28mm' : '0.16mm';
+      $('roLayer').textContent = (gcodeModel && gcodeModel.totalLayers)
+        ? gcodeModel.totalLayers + ' camadas'
+        : state.focus === 'detail' ? '0.08mm' : state.focus === 'function' ? '0.28mm' : '0.16mm';
       $('roFil').textContent = state.color === 'color' ? 'colorido' : state.color === 'mono' ? 'cor única' : '—';
 
       const dot = $('statDot'), stat = $('statTxt');
@@ -668,15 +822,30 @@
        │ Veja a especificação completa em: Pedidos — Integração.html         │
        └─────────────────────────────────────────────────────────────────────┘ */
     function setFile(f) {
+      gcodeModel = null;
       state.file = f ? { name:f.name, size:f.size } : null;
       state.fileData = null;
       if (f) {
         dz.style.display = 'none';
         filePicked.style.display = '';
-        const note = f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
+        const isGcode = /\.gcode$/i.test(f.name);
+        const note = isGcode ? 'lendo gcode…' : f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
         filePicked.innerHTML = `<div class="dz-file"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><div class="fn"><b>${esc(f.name)}</b><span id="dzNote">${esc(fmtSize(f.size))} · ${esc(note)}</span></div><button type="button" class="rm" id="rmFile" aria-label="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
         $('rmFile').addEventListener('click', () => { setFile(null); fileInput.value=''; update(); });
-        if (f.size <= EMBED_LIMIT) {
+        if (isGcode) {
+          // Lê como texto para parsear camadas — G-code não é embutido no payload
+          const rdr = new FileReader();
+          rdr.onload = (e) => {
+            gcodeModel = parseGcode(e.target.result);
+            const n = $('dzNote');
+            if (n) n.textContent = fmtSize(f.size) + (gcodeModel.totalLayers
+              ? ' · ' + gcodeModel.totalLayers + ' camadas'
+              : ' · sem extrusão detectada');
+            update();
+          };
+          rdr.onerror = () => { const n = $('dzNote'); if (n) n.textContent = fmtSize(f.size) + ' · erro ao ler'; };
+          rdr.readAsText(f, 'utf-8');
+        } else if (f.size <= EMBED_LIMIT) {
           const fr = new FileReader();
           fr.onload = () => { state.fileData = fr.result; const n = $('dzNote'); if (n) n.textContent = fmtSize(f.size) + ' · pronto p/ download'; };
           fr.onerror = () => { const n = $('dzNote'); if (n) n.textContent = fmtSize(f.size) + ' · não foi possível ler'; };
