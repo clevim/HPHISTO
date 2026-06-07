@@ -53,28 +53,50 @@ function normPrinter(p) {
 const StoreCtx = createContext(null);
 
 function StoreProvider({ children }) {
-  const [state, setState] = useState(() =>
-    IS_DEMO ? parseState(APP_DATA.DEMO_DATA) : loadState()
-  );
+  const [state, setState] = useState(() => {
+    const base = IS_DEMO ? parseState(APP_DATA.DEMO_DATA) : loadState();
+    return { ...base, orders: IS_DEMO ? (APP_DATA.DEMO_DATA.orders || []) : [] };
+  });
   const synced = useRef(false);
 
+  // carrega estado do servidor + pedidos do balcão
   useEffect(() => {
-    if (IS_DEMO) return; // demo: não busca nem sincroniza com o servidor
+    if (IS_DEMO) return;
     fetch(API)
       .then(r => r.ok ? r.json() : null)
-      .then(remote => { const s = parseState(remote); if (s) setState(s); })
+      .then(remote => { const s = parseState(remote); if (s) setState(prev => ({ ...prev, ...s })); })
       .catch(() => {})
       .finally(() => { synced.current = true; });
+    fetchOrders();
   }, []);
 
+  // sincroniza pedidos ao voltar para a aba
   useEffect(() => {
-    if (IS_DEMO) return; // demo: mudanças ficam só em memória React
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+    if (IS_DEMO) return;
+    const onFocus = () => fetchOrders();
+    const onVis   = () => { if (!document.hidden) fetchOrders(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+
+  function fetchOrders() {
+    fetch('/api/orders')
+      .then(r => r.ok ? r.json() : [])
+      .then(orders => setState(s => ({ ...s, orders })))
+      .catch(() => {});
+  }
+
+  // persiste estado principal (sem orders — essas têm própria API)
+  useEffect(() => {
+    if (IS_DEMO) return;
+    const { orders, ...rest } = state;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(rest)); } catch (e) {}
     if (!synced.current) return;
     fetch(API, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state),
+      body: JSON.stringify(rest),
     }).catch(() => {});
   }, [state]);
 
@@ -107,11 +129,52 @@ function StoreProvider({ children }) {
       return { ...s, materials: [...s.materials, { ...o, id: APP_DATA.uid('mat_'), name: o.name + ' (cópia)' }] };
     }),
 
-    saveQuote: (q) => setState(s => ({ ...s, history: [{ ...q, id: APP_DATA.uid('q_'), savedAt: Date.now() }, ...s.history] })),
+    saveQuote: (q) => {
+      const id = APP_DATA.uid('q_');
+      const saved = { ...q, id, savedAt: Date.now() };
+      setState(s => {
+        // se o orçamento veio de um pedido, move o pedido para "em produção"
+        let orders = s.orders || [];
+        if (q.orderId) {
+          orders = orders.map(o => o.id === q.orderId
+            ? { ...o, quoteId: id, status: (!o.status || o.status === 'novo' ? 'producao' : o.status) }
+            : o);
+          // persiste no servidor
+          if (!IS_DEMO) {
+            fetch(`/api/orders/${q.orderId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quoteId: id, status: 'producao' }),
+            }).catch(() => {});
+          }
+        }
+        return { ...s, history: [saved, ...s.history], orders };
+      });
+    },
     removeQuote: (id) => setState(s => ({ ...s, history: s.history.filter(q => q.id !== id) })),
 
     addJob: (j) => setState(s => ({ ...s, schedule: [...s.schedule, { ...j, id: APP_DATA.uid('job_') }] })),
-    updateJob: (id, patch) => setState(s => ({ ...s, schedule: s.schedule.map(j => j.id === id ? { ...j, ...patch } : j) })),
+    updateJob: (id, patch) => setState(s => {
+      const job = (s.schedule || []).find(j => j.id === id);
+      let orders = s.orders || [];
+      // quando o trabalho é concluído, archiva o pedido vinculado
+      if (patch.status === 'done' && job && job.quoteId) {
+        orders = orders.map(o =>
+          o.quoteId === job.quoteId && o.status !== 'entregue'
+            ? { ...o, status: 'entregue' } : o
+        );
+        if (!IS_DEMO) {
+          // encontra o pedido para PATCH
+          const linked = orders.find(o => o.quoteId === job.quoteId);
+          if (linked) fetch(`/api/orders/${linked.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'entregue' }),
+          }).catch(() => {});
+        }
+      }
+      return { ...s, schedule: s.schedule.map(j => j.id === id ? { ...j, ...patch } : j), orders };
+    }),
     removeJob: (id) => setState(s => ({ ...s, schedule: s.schedule.filter(j => j.id !== id) })),
 
     addProduct: (pr) => setState(s => ({ ...s, catalog: [{ ...pr, id: APP_DATA.uid('prod_'), createdAt: Date.now() }, ...s.catalog] })),
@@ -120,8 +183,37 @@ function StoreProvider({ children }) {
 
     addClient: (c) => { const id = APP_DATA.uid('cli_'); setState(s => ({ ...s, clients: [{ ...c, id, createdAt: Date.now() }, ...(s.clients || [])] })); return id; },
     updateClient: (id, patch) => setState(s => ({ ...s, clients: (s.clients || []).map(c => c.id === id ? { ...c, ...patch } : c) })),
-    removeClient: (id) => setState(s => ({ ...s, clients: (s.clients || []).filter(c => c.id !== id),
+    removeClient: (id) => setState(s => ({ ...s,
+      clients: (s.clients || []).filter(c => c.id !== id),
+      orders: (s.orders || []).filter(o => o.clientId !== id),
       history: s.history.map(q => q.clientId === id ? { ...q, clientId: null } : q) })),
+
+    // ── pedidos do balcão ──
+    markClientOrdersSeen: (clientId) => {
+      setState(s => ({ ...s, orders: (s.orders || []).map(o =>
+        o.clientId === clientId && !o.seen ? { ...o, seen: true } : o
+      )}));
+      if (!IS_DEMO) {
+        // PATCH seen=true para todos os pedidos deste cliente não vistos
+        (state.orders || [])
+          .filter(o => o.clientId === clientId && !o.seen)
+          .forEach(o => fetch(`/api/orders/${o.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seen: true }),
+          }).catch(() => {}));
+      }
+    },
+    setOrderStatus: (id, status) => {
+      setState(s => ({ ...s, orders: (s.orders || []).map(o => o.id === id ? { ...o, status } : o) }));
+      if (!IS_DEMO) fetch(`/api/orders/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      }).catch(() => {});
+    },
+    removeOrder: (id) => {
+      setState(s => ({ ...s, orders: (s.orders || []).filter(o => o.id !== id) }));
+      if (!IS_DEMO) fetch(`/api/orders/${id}`, { method: 'DELETE' }).catch(() => {});
+    },
 
     // backup / restauração
     exportData: () => JSON.stringify({ __app: 'HFSTO', __v: 1, exportedAt: Date.now(),

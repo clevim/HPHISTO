@@ -23,11 +23,14 @@ function localDate(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).
 function JobModal({ store, editing, preset, onClose }) {
   const t = store.t;
   const presetQuote = preset?.quoteId ? store.history.find(q => q.id === preset.quoteId) : null;
+  // pedido vinculado ao orçamento — usado para puxar o prazo de entrega
+  const presetOrder = presetQuote ? (store.orders || []).find(o => o.quoteId === presetQuote.id) : null;
   const blank = {
     title: presetQuote?.name || '',
     printerId: (presetQuote?.input?.printerId && store.printers.some(p => p.id === presetQuote.input.printerId) ? presetQuote.input.printerId : null) || preset?.printerId || store.printers[0]?.id,
     materialId: (presetQuote?.input?.materialId && store.materials.some(m => m.id === presetQuote.input.materialId) ? presetQuote.input.materialId : null) || store.materials[0]?.id,
     date: preset?.date || localDate(new Date()),
+    dueDate: preset?.dueDate || presetOrder?.deadline || '',
     hours: presetQuote?.result?.hours != null ? +Number(presetQuote.result.hours).toFixed(2) : 4,
     qty: presetQuote?.input?.quantity || 1,
     weightG: presetQuote?.result?.weight != null ? +Number(presetQuote.result.weight).toFixed(1) : '',
@@ -36,7 +39,7 @@ function JobModal({ store, editing, preset, onClose }) {
   const [f, setF] = useState(editing || blank);
   const set = (p) => setF(s => ({ ...s, ...p }));
 
-  // vincula um orçamento salvo (peça calculada) → preenche os campos
+  // vincula um orçamento salvo → preenche campos; puxa prazo do pedido vinculado
   const linkQuote = (qid) => {
     if (!qid) { set({ quoteId: '' }); return; }
     const q = store.history.find(x => x.id === qid);
@@ -50,6 +53,9 @@ function JobModal({ store, editing, preset, onClose }) {
       if (q.result.weight != null) patch.weightG = +Number(q.result.weight).toFixed(1);
       if (q.result.hours != null) patch.hours = +Number(q.result.hours).toFixed(2);
     }
+    // puxa prazo do pedido do balcão associado ao orçamento
+    const linkedOrder = (store.orders || []).find(o => o.quoteId === qid);
+    if (linkedOrder?.deadline) patch.dueDate = linkedOrder.deadline;
     set(patch);
   };
 
@@ -87,6 +93,9 @@ function JobModal({ store, editing, preset, onClose }) {
         </Field>
         <Field label={t('job_date')}>
           <div className="control"><input type="date" value={f.date} onChange={e => set({ date: e.target.value })} /></div>
+        </Field>
+        <Field label="Entrega (prazo)" hint="Prazo do pedido do cliente">
+          <div className="control"><input type="date" value={f.dueDate || ''} onChange={e => set({ dueDate: e.target.value })} /></div>
         </Field>
         <Field label={t('est_hours')}><NumberInput value={f.hours} step={0.5} onChange={v => set({ hours: v })} affix={t('hours')} /></Field>
         <Field label={t('quantity')}><NumberInput value={f.qty} step={1} min={1} onChange={v => set({ qty: v })} affix="un" /></Field>

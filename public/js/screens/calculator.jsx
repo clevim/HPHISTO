@@ -216,6 +216,7 @@ function CalculatorScreen({ initial, onNavigate }) {
       name: input.name || t('piece'),
       clientId: input.clientId || null,
       status: input.status || 'draft',
+      orderId: input.orderId || null,
     });
     if (window.FX) FX.cling(store.settings.soundOn);
     onNavigate && onNavigate('history', { flash: true });

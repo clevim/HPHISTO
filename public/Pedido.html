@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="console">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>HΦSTO — abrir pedido</title>
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <meta name="theme-color" content="#1a1206" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ============================================================
+       BALCÃO — "ABRIR PEDIDO" (público, sem login)
+       Conforme o cliente preenche, uma PEÇA materializa e cresce
+       camada-a-camada na mesa. Detalhe×Função muda a densidade das
+       linhas de camada; Cor pinta o filamento. Um BILHETE DE ORDEM
+       (OS) é datilografado ao lado em tempo real.
+       ============================================================ */
+    html, body { height: 100%; }
+    body { min-height: 100%; display: grid; place-items: center; padding: clamp(14px, 3.5vw, 44px); overflow: auto; }
+    body::after {
+      content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: radial-gradient(72% 60% at 50% 34%, oklch(from var(--accent) l c h / 0.10), transparent 70%);
+    }
+
+    .order-deck {
+      position: relative; z-index: 1; width: min(1080px, 100%);
+      display: grid; grid-template-columns: 1.02fr 1.1fr;
+      background: var(--card); border: 1px solid var(--line-2); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); overflow: hidden;
+      animation: deckIn .5s cubic-bezier(.2,.8,.2,1) both;
+    }
+    @keyframes deckIn { from { opacity: 0; transform: translateY(14px); } }
+    .order-deck::before, .order-deck::after { content: ""; position: absolute; width: 13px; height: 13px; z-index: 6; pointer-events: none; }
+    .order-deck::before { top: 9px; left: 9px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+    .order-deck::after  { bottom: 9px; right: 9px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+    .screw { position: absolute; width: 9px; height: 9px; border-radius: 50%; z-index: 6; background: radial-gradient(circle at 38% 35%, var(--line-2), var(--readout-bg)); border: 1px solid var(--line); }
+    .screw::after { content: ""; position: absolute; inset: 2.5px; border-top: 1.5px solid var(--ink-3); opacity: .5; transform: rotate(35deg); }
+    .screw.tr { top: 10px; right: 10px; } .screw.bl { bottom: 10px; left: 10px; }
+
+    /* ===== ASIDE — A MESA DE IMPRESSÃO ===== */
+    .build-aside {
+      position: relative; padding: 26px 26px 18px; display: flex; flex-direction: column; gap: 14px;
+      background:
+        radial-gradient(120% 80% at 50% 4%, oklch(from var(--accent) l c h / 0.07), transparent 58%),
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+        var(--readout-bg);
+      background-size: 100% 100%, 22px 22px, 22px 22px, 100% 100%;
+      border-right: 1px solid var(--line);
+    }
+    .aside-brand { display: flex; align-items: center; gap: 12px; }
+    .brand-sq { width: 38px; height: 38px; border-radius: 2px; background: var(--accent); display: grid; place-items: center; flex: none; position: relative; }
+    .brand-sq::after { content: ""; position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid var(--accent); }
+    .brand-sq img { width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+    .brand-tt { font-family: var(--font-display); font-weight: 800; font-size: 16px; letter-spacing: -0.01em; text-transform: uppercase; line-height: 1; }
+    .brand-tt small { display: block; font-family: var(--font-mono); font-weight: 400; font-size: 8px; letter-spacing: 0.16em; color: var(--ink-3); text-transform: uppercase; margin-top: 5px; }
+
+    /* janela da câmara */
+    .bay {
+      position: relative; flex: 1; min-height: 268px; border: 1px solid var(--line);
+      border-radius: 2px; background:
+        radial-gradient(80% 60% at 50% 100%, oklch(from var(--accent) l c h / 0.06), transparent 70%),
+        oklch(from var(--readout-bg) calc(l - 0.02) c h);
+      overflow: hidden; display: grid; place-items: center;
+    }
+    .bay-tag { position: absolute; top: 8px; left: 9px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 5px; z-index: 3; }
+    .bay-tag .led { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 7px var(--accent); animation: blink 2s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: .3; } }
+    .bay-pct { position: absolute; top: 8px; right: 9px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--accent); font-weight: 700; z-index: 3; }
+    .bay svg { width: 100%; height: 100%; overflow: visible; }
+    .bed-readout { position: absolute; bottom: 8px; left: 9px; right: 9px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; z-index: 3; }
+    .bed-readout b { color: var(--accent); font-weight: 700; }
+
+    /* iso part styles */
+    .iso-frame path { fill: none; stroke: var(--line-2); stroke-width: 1.4; stroke-linecap: round; opacity: .6; }
+    .bed-top { fill: oklch(from var(--readout-bg) calc(l + 0.05) c h); stroke: var(--line-2); stroke-width: 1; }
+    .bed-side { stroke: var(--line); stroke-width: 1; }
+    .bed-side-l { fill: oklch(from var(--readout-bg) calc(l - 0.02) c h); }
+    .bed-side-r { fill: oklch(from var(--readout-bg) calc(l + 0.01) c h); }
+    .bed-grid { stroke: oklch(from var(--accent) l c h / 0.16); stroke-width: .7; }
+    .iso-layer path { stroke-width: .8; vector-effect: non-scaling-stroke; }
+    .iso-outline path { fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+    .head-rail { stroke: var(--line-2); stroke-width: 2; opacity: .55; }
+    .head-carriage { fill: var(--panel-head); stroke: var(--line-2); stroke-width: 1; }
+    .head-fan { fill: none; stroke: var(--accent); stroke-width: 1.3; }
+    .head-nozzle { fill: var(--line-2); stroke: var(--ink-3); stroke-width: .8; }
+    .head-tip { fill: var(--accent); }
+    .ghost-foot { fill: none; stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 4 4; opacity: .5; }
+
+    .aside-status { display: flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); border-top: 1px solid var(--line); padding-top: 12px; }
+    .aside-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; transition: .25s; }
+    .aside-status b { color: var(--accent); font-weight: 700; }
+    .aside-status .spacer { flex: 1; }
+    .aside-status .ver { color: var(--ink-3); letter-spacing: 0.08em; }
+
+    /* ===== FORM ===== */
+    .order-form { position: relative; padding: 30px clamp(24px, 3vw, 40px) 26px; display: flex; flex-direction: column; }
+    .form-head h1 { font-family: var(--font-display); font-weight: 800; font-size: 25px; letter-spacing: -0.02em; text-transform: uppercase; margin-top: 4px; }
+    .form-head p { font-size: 12px; color: var(--ink-3); margin-top: 6px; max-width: 42ch; }
+    .form-scroll { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
+
+    .step-no { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--ink-3); }
+    .field > label .step-no { margin-right: 2px; }
+    .field > label .seal { margin-left: auto; color: var(--good); font-size: 9px; letter-spacing: 0.08em; font-family: var(--font-mono); opacity: 0; transition: opacity .15s; }
+    .field > label .seal::before { content: "▸ "; }
+    .field.ok > label .seal { opacity: 1; }
+    .field.ok .control { border-color: oklch(from var(--good) l c h / 0.5); }
+    .field .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .control input::placeholder { color: var(--ink-3); }
+    .control input[type="date"] { color-scheme: dark; }
+    [data-theme="paper"] .control input[type="date"] { color-scheme: light; }
+
+    /* tabs modelo (STL × link) */
+    .model-tabs { display: inline-flex; gap: 2px; background: var(--paper); border: 1px solid var(--line-2); border-radius: 2px; padding: 2px; margin-bottom: 9px; }
+    .model-tabs button { padding: 6px 13px; border-radius: 1px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+    .model-tabs button svg { width: 13px; height: 13px; }
+    .model-tabs button.on { background: var(--accent); color: var(--accent-ink); }
+
+    .dropzone {
+      border: 1.5px dashed var(--line-2); border-radius: 3px; padding: 20px 16px; text-align: center;
+      cursor: pointer; transition: .15s; display: flex; flex-direction: column; align-items: center; gap: 8px;
+      background: var(--paper);
+    }
+    .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: oklch(from var(--accent) l c h / 0.05); }
+    .dropzone svg { width: 26px; height: 26px; color: var(--accent); }
+    .dropzone .dz-main { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink-2); }
+    .dropzone .dz-sub { font-size: 10.5px; color: var(--ink-3); }
+    .dz-file { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid var(--good); border-radius: 3px; background: oklch(from var(--good) l c h / 0.07); }
+    .dz-file .fi { width: 30px; height: 30px; border-radius: 2px; background: oklch(from var(--good) l c h / 0.16); display: grid; place-items: center; flex: none; }
+    .dz-file .fi svg { width: 16px; height: 16px; color: var(--good); }
+    .dz-file .fn { flex: 1; min-width: 0; }
+    .dz-file .fn b { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dz-file .fn span { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-3); letter-spacing: 0.04em; }
+    .dz-file .rm { width: 26px; height: 26px; border-radius: 2px; display: grid; place-items: center; color: var(--ink-3); flex: none; }
+    .dz-file .rm:hover { color: var(--danger); background: oklch(from var(--danger) l c h / 0.1); }
+    .dz-file .rm svg { width: 14px; height: 14px; }
+
+    /* escolha (detalhe×função / cor) com cartões físicos */
+    .pick { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .pick.tri { grid-template-columns: 1fr 1fr 1fr; }
+    .pick-card {
+      position: relative; border: 1px solid var(--line-2); border-radius: 3px; padding: 11px 12px;
+      background: var(--paper); text-align: left; transition: .14s; display: flex; flex-direction: column; gap: 4px;
+    }
+    .pick-card:hover { border-color: var(--accent); }
+    .pick-card.on { border-color: var(--accent); background: oklch(from var(--accent) l c h / 0.07); box-shadow: inset 0 0 0 1px var(--accent); }
+    .pick-card .pc-ico { width: 18px; height: 18px; color: var(--ink-2); margin-bottom: 2px; }
+    .pick-card.on .pc-ico { color: var(--accent); }
+    .pick-card .pc-t { font-family: var(--font-display); font-weight: 700; font-size: 13px; }
+    .pick-card .pc-s { font-size: 10px; color: var(--ink-3); line-height: 1.3; }
+    .pick-card .pc-spec { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em; color: var(--accent); margin-top: 2px; text-transform: uppercase; }
+    .pick-card .pc-check { position: absolute; top: 8px; right: 8px; width: 15px; height: 15px; border-radius: 50%; background: var(--accent); display: none; place-items: center; }
+    .pick-card.on .pc-check { display: grid; }
+    .pick-card .pc-check svg { width: 9px; height: 9px; stroke: var(--accent-ink); }
+
+    /* dot arco-íris no ticket (cor a definir) */
+    .trow .tv .sw-rainbow { background: conic-gradient(from 0deg, oklch(0.72 0.16 0), oklch(0.72 0.16 90), oklch(0.72 0.16 180), oklch(0.72 0.16 270), oklch(0.72 0.16 360)); }
+
+    .err { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--danger); min-height: 14px; margin-top: 14px; display: flex; align-items: center; gap: 6px; opacity: 0; transition: opacity .15s; }
+    .err.on { opacity: 1; } .err::before { content: "▸"; }
+    .btn-send { width: 100%; margin-top: 6px; padding: 14px; font-size: 12px; gap: 10px; }
+    .form-foot { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+    .form-foot .spacer { flex: 1; }
+    .form-foot a { color: var(--ink-2); }
+
+    .theme-switch { position: absolute; top: 14px; right: 16px; display: flex; gap: 4px; z-index: 7; }
+    .theme-switch button { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-2); padding: 0; cursor: pointer; }
+    .theme-switch button[data-t="console"] { background: oklch(0.82 0.155 72); }
+    .theme-switch button[data-t="blueprint"] { background: oklch(0.80 0.135 205); }
+    .theme-switch button[data-t="paper"] { background: oklch(0.92 0.02 90); }
+    .theme-switch button.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    /* ===== TICKET de confirmação ===== */
+    .ticket-scrim { position: fixed; inset: 0; z-index: 50; background: oklch(0 0 0 / 0.6); display: grid; place-items: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .3s; }
+    .ticket-scrim.on { opacity: 1; pointer-events: auto; }
+    .ticket {
+      position: relative; width: min(420px, 100%); background: var(--card); border: 1px solid var(--line-2);
+      border-radius: var(--radius); box-shadow: var(--shadow-lg); overflow: hidden;
+      transform: translateY(20px) scale(.97); transition: transform .35s cubic-bezier(.2,.9,.3,1.2);
+    }
+    .ticket-scrim.on .ticket { transform: none; }
+    .ticket-top { padding: 22px 24px 16px; background:
+        repeating-linear-gradient(45deg, oklch(from var(--accent) l c h / 0.07) 0 9px, transparent 9px 18px), var(--panel-head);
+      border-bottom: 1px dashed var(--line-2); position: relative; }
+    .ticket-top .ok-mark { width: 42px; height: 42px; border-radius: 50%; background: var(--good); display: grid; place-items: center; margin-bottom: 12px; box-shadow: 0 0 0 5px oklch(from var(--good) l c h / 0.18); }
+    .ticket-top .ok-mark svg { width: 22px; height: 22px; stroke: var(--accent-ink); }
+    .ticket-top h2 { font-family: var(--font-display); font-weight: 800; font-size: 19px; text-transform: uppercase; letter-spacing: -0.01em; }
+    .ticket-top .os { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; color: var(--accent); margin-top: 4px; }
+    .ticket-perfs { display: flex; justify-content: space-between; padding: 0 14px; margin-top: -9px; position: relative; z-index: 2; }
+    .ticket-perfs span { width: 16px; height: 16px; border-radius: 50%; background: var(--readout-bg); }
+    .ticket-body { padding: 16px 24px 8px; }
+    .trow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .trow:last-child { border-bottom: none; }
+    .trow .tk { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+    .trow .tv { text-align: right; font-weight: 600; }
+    .trow .tv .sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+    .ticket-foot { padding: 14px 24px 22px; }
+    .ticket-foot .btn { width: 100%; }
+    .ticket-note { text-align: center; font-size: 11px; color: var(--ink-3); margin-top: 12px; }
+
+    .igniting { animation: flick .5s steps(2) 1; }
+    @keyframes flick { 30% { filter: brightness(1.2); } 60% { filter: brightness(.93); } }
+
+    @media (max-width: 760px) {
+      .order-deck { grid-template-columns: 1fr; }
+      .build-aside { border-right: none; border-bottom: 1px solid var(--line); }
+      .bay { min-height: 210px; }
+      .pick.tri { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) { .bay-tag .led, .order-deck { animation: none; } }
+  </style>
+</head>
+<body>
+  <main class="order-deck" id="deck">
+    <span class="screw tr"></span>
+    <span class="screw bl"></span>
+
+    <!-- ===== A MESA ===== -->
+    <section class="build-aside">
+      <div class="aside-brand">
+        <span class="brand-sq"><img src="assets/logo-mark.png" alt="HΦSTO" /></span>
+        <span class="brand-tt">HΦSTO<small>Balcão de pedidos</small></span>
+      </div>
+
+      <div class="bay">
+        <span class="bay-tag"><span class="led"></span>Chamber Cam · Live</span>
+        <span class="bay-pct" id="bayPct">0%</span>
+        <svg viewBox="-150 -250 300 380" id="bay" preserveAspectRatio="xMidYMax meet"></svg>
+        <div class="bed-readout" id="bedReadout">
+          <span>BED <b>—</b></span><span>CAMADA <b id="roLayer">0.16mm</b></span><span>FILAMENTO <b id="roFil">—</b></span>
+        </div>
+      </div>
+
+      <div class="aside-status">
+        <span class="dot" id="statDot"></span>
+        <span>Fila · <b id="statTxt">AGUARDANDO</b></span>
+        <span class="spacer"></span>
+        <span class="ver">ORDEM ABERTA</span>
+      </div>
+    </section>
+
+    <!-- ===== FORMULÁRIO ===== -->
+    <section class="order-form">
+      <div class="theme-switch" id="themeSwitch">
+        <button data-t="console" class="on" title="Console" aria-label="Tema Console"></button>
+        <button data-t="blueprint" title="Blueprint" aria-label="Tema Blueprint"></button>
+        <button data-t="paper" title="Papel" aria-label="Tema Papel"></button>
+      </div>
+
+      <div class="form-head">
+        <div class="section-label">Pedido novo</div>
+        <h1>Solicitar impressão</h1>
+        <p>Conte o que você precisa imprimir. Montamos seu orçamento e entramos em contato.</p>
+      </div>
+
+      <form id="orderForm" novalidate>
+        <div class="form-scroll">
+          <!-- 1. contato -->
+          <div class="field" id="f-name">
+            <label><span class="step-no">01</span> Seu nome <span class="seal">selado</span></label>
+            <div class="control"><input type="text" id="name" autocomplete="name" placeholder="Como devemos te chamar?" /></div>
+          </div>
+          <div class="field" id="f-contact">
+            <label><span class="step-no">02</span> WhatsApp ou e-mail <span class="seal">selado</span></label>
+            <div class="control"><input type="text" id="contact" autocomplete="tel" placeholder="(00) 90000-0000  ·  voce@email.com" /></div>
+            <span class="hint">Como te avisamos quando o orçamento sair.</span>
+          </div>
+
+          <!-- 3. modelo -->
+          <div class="field" id="f-model">
+            <label><span class="step-no">03</span> Modelo 3D <span class="seal">selado</span></label>
+            <div class="model-tabs" id="modelTabs">
+              <button type="button" data-tab="file" class="on">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                Enviar STL
+              </button>
+              <button type="button" data-tab="link">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+                Colar link
+              </button>
+            </div>
+
+            <div id="paneFile">
+              <input type="file" id="fileInput" accept=".stl,.3mf,.obj,.step,.stp,.gcode,.zip" hidden />
+              <div class="dropzone" id="dropzone">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
+                <div class="dz-main">Arraste o arquivo aqui</div>
+                <div class="dz-sub">STL · 3MF · OBJ · STEP · até 50 MB</div>
+              </div>
+              <div id="filePicked" style="display:none;"></div>
+            </div>
+
+            <div id="paneLink" style="display:none;">
+              <div class="control"><input type="url" id="link" placeholder="cole o link do Thingiverse, Printables, MakerWorld..." /></div>
+              <span class="hint">Link público do modelo em qualquer site de modelos 3D.</span>
+            </div>
+          </div>
+
+          <!-- 4. prazo -->
+          <div class="field" id="f-deadline">
+            <label><span class="step-no">04</span> Prazo — até quando você precisa <span class="seal">selado</span></label>
+            <div class="control"><input type="date" id="deadline" /></div>
+            <span class="hint" id="deadlineHint">Sem urgência? Deixe em branco e a gente combina.</span>
+          </div>
+
+          <!-- 5. foco -->
+          <div class="field" id="f-focus">
+            <label><span class="step-no">05</span> Foco da peça <span class="seal">selado</span></label>
+            <div class="pick" id="focusPick">
+              <button type="button" class="pick-card" data-focus="detail">
+                <span class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <svg class="pc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/></svg>
+                <span class="pc-t">Detalhe</span>
+                <span class="pc-s">Miniaturas, relevos, peças finas. Linhas mais finas.</span>
+                <span class="pc-spec">Camada 0.08 mm</span>
+              </button>
+              <button type="button" class="pick-card" data-focus="function">
+                <span class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <svg class="pc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.6 5.6l-6 6a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l6-6a4 4 0 0 0 5.6-5.6l-2.5 2.5-2-2 2.5-2.5Z"/></svg>
+                <span class="pc-t">Função</span>
+                <span class="pc-s">Suportes, engates, peças que sofrem esforço. Mais robusto.</span>
+                <span class="pc-spec">Camada 0.28 mm</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 6. cor -->
+          <div class="field" id="f-color">
+            <label><span class="step-no">06</span> Cor <span class="seal">selado</span></label>
+            <div class="pick" id="colorPick">
+              <button type="button" class="pick-card" data-color="mono">
+                <span class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <svg class="pc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+                <span class="pc-t">Cor única</span>
+                <span class="pc-s">Uma cor só — a que tivermos no carretel.</span>
+              </button>
+              <button type="button" class="pick-card" data-color="color">
+                <span class="pc-check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <svg class="pc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="12" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="13" r="2.5"/><path d="M12 22a10 10 0 1 1 0-20c4 0 6 2.5 6 5 0 3-3 3-3 5s2 2 2 4-2 6-7 6Z"/></svg>
+                <span class="pc-t">Colorido</span>
+                <span class="pc-s">Várias cores — a gente combina o tom com você depois.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="err" id="err">verifique os dados</div>
+        <button type="submit" class="btn btn-primary btn-send" id="send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          <span id="sendTxt">Enviar pedido</span>
+        </button>
+      </form>
+
+      <div class="form-foot">
+        <span>HΦSTO Systems</span>
+        <span class="spacer"></span>
+        <a href="Login.html">Sou a oficina ▸ entrar</a>
+      </div>
+    </section>
+  </main>
+
+  <!-- TICKET -->
+  <div class="ticket-scrim" id="ticketScrim">
+    <div class="ticket">
+      <div class="ticket-top">
+        <div class="ok-mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h2>Pedido recebido</h2>
+        <div class="os" id="tkOs">OS-0000</div>
+      </div>
+      <div class="ticket-perfs"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="ticket-body" id="tkBody"></div>
+      <div class="ticket-foot">
+        <div class="ticket-note">Seu pedido entrou na fila da oficina. Avisamos pelo contato informado.</div>
+        <button class="btn btn-ghost" id="tkNew" style="margin-top:14px;">Abrir outro pedido</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const NS = 'http://www.w3.org/2000/svg';
+    const $ = (id) => document.getElementById(id);
+
+    /* ---------- tema ---------- */
+    const sw = $('themeSwitch');
+    const savedTheme = localStorage.getItem('calc3d_theme') || 'console';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    sw.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === savedTheme));
+    sw.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      document.documentElement.setAttribute('data-theme', b.dataset.t);
+      localStorage.setItem('calc3d_theme', b.dataset.t);
+      sw.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      drawBay();
+    });
+
+    /* ---------- estado do pedido ---------- */
+    let tick = 0, shapeSeed = Math.floor(Math.random()*99999);
+    const state = { name:'', contact:'', modelMode:'file', file:null, fileData:null, link:'', deadline:'', focus:'', color:'' };
+
+    /* ---------- validação ---------- */
+    const emailOk = v => /.+@.+\..+/.test(v);
+    const phoneOk = v => (v.replace(/\D/g,'').length >= 8);
+    const contactOk = v => emailOk(v.trim()) || phoneOk(v);
+    function checks() {
+      return {
+        name: state.name.trim().length >= 2,
+        contact: contactOk(state.contact),
+        model: state.modelMode === 'file' ? !!state.file : (state.link.trim().length > 4 && /\./.test(state.link)),
+        deadline: !!state.deadline,
+        focus: !!state.focus,
+        color: !!state.color,
+      };
+    }
+
+    /* ============================================================
+       MESA ISOMÉTRICA — peça cresce camada a camada conforme o frac
+       ============================================================ */
+    const bay = $('bay');
+    const U = 46, Cc = Math.cos(Math.PI/6)*U, Ss = Math.sin(Math.PI/6)*U;
+    const W = 1.6, D = 1.6;
+    const proj = (x,y,z) => ({ x:(x-y)*Cc, y:(x+y)*Ss - z });
+    const pt = (x,y,z) => { const p = proj(x,y,z); return p.x.toFixed(1)+','+p.y.toFixed(1); };
+    const el = (tag, attrs, cls) => { const e = document.createElementNS(NS, tag); if (cls) e.setAttribute('class', cls); for (const k in (attrs||{})) e.setAttribute(k, attrs[k]); return e; };
+
+    /* gerador de FORMA ORGÂNICA (igual ao da calculadora) — pilha de N
+       camadas que ondula, torce e troca de "personalidade" sozinha */
+    function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+    function genOrganic(nLayers, seed, time, cx, cy, hPx) {
+      const rnd = mulberry32(seed);
+      const N = Math.max(3, Math.min(60, nLayers));
+      const lobes = 2 + Math.floor(rnd()*6);
+      const lobeAmp = 0.10 + rnd()*0.32;
+      const twist = (rnd()-0.5)*4.2;
+      const spin = (rnd()-0.5)*1.4 + 0.4;
+      const wob = 0.5 + rnd()*1.6;
+      const baseR = 0.36 + rnd()*0.12;
+      const nb = 2 + Math.floor(rnd()*3);
+      const bumps = [];
+      for (let k=0;k<nb;k++) bumps.push({ h:rnd(), w:0.06+rnd()*0.16, a:(rnd()-0.5)*1.3 });
+      const profile = (u) => { let r=1; for (const b of bumps) r += b.a*Math.exp(-((u-b.h)*(u-b.h))/(2*b.w*b.w)); r *= 0.7 + 0.5*Math.sin(Math.PI*(0.15+u*0.7)); return Math.max(0.16,r); };
+      const SEG = 28, layers = [];
+      for (let i=0;i<N;i++){
+        const u = N===1?0:i/(N-1);
+        const zp = u*hPx;
+        const rBase = baseR*profile(u);
+        const phase = u*twist + time*wob;
+        const rot = time*spin + u*twist*0.4;
+        const ring = [];
+        for (let s=0;s<=SEG;s++){
+          const a = s/SEG*Math.PI*2;
+          const wobble = 1 + lobeAmp*Math.sin(lobes*a+phase) + 0.06*Math.sin(3*a-time*1.3);
+          const r = rBase*wobble;
+          ring.push([cx + r*Math.cos(a+rot), cy + r*Math.sin(a+rot)]);
+        }
+        layers.push({ ring, zp });
+      }
+      return { layers, N };
+    }
+
+    // cor de cada camada: "colorido" = arco-íris que SOBE/flui com o tempo;
+    // "cor única" / indefinido = cinza natural do filamento
+    function layerColor(tt, time) {
+      if (state.color === 'color') {
+        const hue = (((time*26 + tt*150) % 360) + 360) % 360;
+        return `oklch(0.72 0.16 ${hue.toFixed(0)})`;
+      }
+      return 'oklch(0.62 0.012 95)';
+    }
+    function darker(c,p){ return `color-mix(in oklab, ${c}, #000 ${p}%)`; }
+    function lighter(c,p){ return `color-mix(in oklab, ${c}, #fff ${p}%)`; }
+
+    function drawBay() {
+      const c = checks();
+      const done = Object.values(c).filter(Boolean).length;
+      const frac = done / 6;
+      const maxH = 200;
+      const topZ = frac * maxH;
+      const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || 'orange';
+
+      bay.textContent = '';
+
+      // frame traseiro
+      const be = 0.45, frameTop = 250;
+      const frame = el('g', null, 'iso-frame');
+      frame.appendChild(el('path', { d:`M ${pt(-be,-be,0)} L ${pt(-be,-be,frameTop)}` }));
+      frame.appendChild(el('path', { d:`M ${pt(W+be,-be,0)} L ${pt(W+be,-be,frameTop)}` }));
+      frame.appendChild(el('path', { d:`M ${pt(-be,-be,frameTop)} L ${pt(W+be,-be,frameTop)}` }));
+      bay.appendChild(frame);
+
+      // mesa
+      const bed = el('g', null, 'iso-bed');
+      bed.appendChild(el('polygon', { points:`${pt(-be,D+be,0)} ${pt(W+be,D+be,0)} ${pt(W+be,D+be,-7)} ${pt(-be,D+be,-7)}` }, 'bed-side bed-side-l'));
+      bed.appendChild(el('polygon', { points:`${pt(W+be,-be,0)} ${pt(W+be,D+be,0)} ${pt(W+be,D+be,-7)} ${pt(W+be,-be,-7)}` }, 'bed-side bed-side-r'));
+      bed.appendChild(el('polygon', { points:`${pt(-be,-be,0)} ${pt(W+be,-be,0)} ${pt(W+be,D+be,0)} ${pt(-be,D+be,0)}` }, 'bed-top'));
+      [0.32,0.64,0.96,1.28].forEach(g => {
+        bed.appendChild(el('line', { x1:proj(g,-be,0).x, y1:proj(g,-be,0).y, x2:proj(g,D+be,0).x, y2:proj(g,D+be,0).y }, 'bed-grid'));
+        bed.appendChild(el('line', { x1:proj(-be,g,0).x, y1:proj(-be,g,0).y, x2:proj(W+be,g,0).x, y2:proj(W+be,g,0).y }, 'bed-grid'));
+      });
+      bay.appendChild(bed);
+
+      const hasModel = c.model;
+      const time = tick*0.09;
+      const fineLayer = state.focus === 'detail';
+      const layerStep = state.focus === 'detail' ? 4.4 : state.focus === 'function' ? 9 : 6;
+      const cx = W/2, cy = D/2;
+
+      if (topZ < 4) {
+        // ainda nada impresso → silhueta orgânica fantasma na mesa
+        const ghost = genOrganic(3, shapeSeed, time, cx, cy, 6);
+        let d=''; ghost.layers[0].ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],0.4); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
+        bay.appendChild(el('path', { d:d+'Z' }, 'ghost-foot'));
+      } else {
+        // nº de camadas cresce com o preenchimento e densifica conforme o foco
+        const nLayers = Math.max(3, Math.min(60, Math.round(topZ / layerStep)));
+        const fun = genOrganic(nLayers, shapeSeed, time, cx, cy, topZ);
+        const paths = fun.layers.map((L) => {
+          let d=''; L.ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],L.zp); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
+          return d+'Z';
+        });
+        const part = el('g', null, 'iso-fun');
+        const baseEdge = fineLayer ? 0.9 : 1.3;
+        paths.forEach((d,i) => {
+          const tt = i/(paths.length-1 || 1);
+          const lc = layerColor(tt, time);
+          part.appendChild(el('path', {
+            d, fill: lc, 'fill-opacity': (0.12 + 0.16*tt).toFixed(3),
+            stroke: lc, 'stroke-width': (i===paths.length-1 ? 1.5 : baseEdge).toFixed(2),
+            'stroke-opacity': (0.45 + 0.45*tt).toFixed(3),
+          }));
+        });
+        // tampa do topo destacada
+        const topC = layerColor(1, time);
+        part.appendChild(el('path', { d: paths[paths.length-1], fill: lighter(topC, hasModel?16:8), 'fill-opacity':0.5, stroke: lighter(topC,32), 'stroke-width':1.3 }));
+        bay.appendChild(part);
+      }
+
+      // cabeçote acompanha o topo
+      const head = proj(W/2, D/2, Math.max(topZ,6) + 14);
+      const railL = proj(-be, D/2, Math.max(topZ,6)+14), railR = proj(W+be, D/2, Math.max(topZ,6)+14);
+      const hg = el('g', null, 'iso-head');
+      hg.setAttribute('transform', `translate(${head.x} ${head.y})`);
+      hg.appendChild(el('line', { x1:railL.x-head.x, y1:railL.y-head.y, x2:railR.x-head.x, y2:railR.y-head.y }, 'head-rail'));
+      hg.appendChild(el('rect', { x:-15, y:-24, width:30, height:14, rx:1 }, 'head-carriage'));
+      hg.appendChild(el('circle', { cx:0, cy:-17, r:4 }, 'head-fan'));
+      hg.appendChild(el('polygon', { points:'-6,-10 6,-10 0,0' }, 'head-nozzle'));
+      hg.appendChild(el('circle', { cx:0, cy:1, r:2 }, 'head-tip'));
+      bay.appendChild(hg);
+
+      // HUD
+      $('bayPct').textContent = Math.round(frac*100) + '%';
+      $('roLayer').textContent = state.focus === 'detail' ? '0.08mm' : state.focus === 'function' ? '0.28mm' : '0.16mm';
+      $('roFil').textContent = state.color === 'color' ? 'colorido' : state.color === 'mono' ? 'cor única' : '—';
+
+      const dot = $('statDot'), stat = $('statTxt');
+      if (frac >= 1) { stat.textContent = 'PRONTO P/ ENVIO'; dot.style.background='var(--good)'; dot.style.boxShadow='0 0 8px var(--good)'; }
+      else if (frac > 0) { stat.textContent = 'MONTANDO'; dot.style.background='var(--accent)'; dot.style.boxShadow='0 0 8px var(--accent)'; }
+      else { stat.textContent = 'AGUARDANDO'; dot.style.background='var(--ink-3)'; dot.style.boxShadow='none'; }
+    }
+
+    /* ---------- field "ok" marks ---------- */
+    function syncFieldMarks() {
+      const c = checks();
+      $('f-name').classList.toggle('ok', c.name);
+      $('f-contact').classList.toggle('ok', c.contact);
+      $('f-model').classList.toggle('ok', c.model);
+      $('f-deadline').classList.toggle('ok', c.deadline);
+      $('f-focus').classList.toggle('ok', c.focus);
+      $('f-color').classList.toggle('ok', c.color);
+    }
+    function update() { syncFieldMarks(); drawBay(); }
+
+    /* ---------- inputs ---------- */
+    $('name').addEventListener('input', e => { state.name = e.target.value; update(); });
+    $('contact').addEventListener('input', e => { state.contact = e.target.value; update(); });
+    $('link').addEventListener('input', e => { state.link = e.target.value; update(); });
+    $('deadline').addEventListener('input', e => {
+      state.deadline = e.target.value;
+      const h = $('deadlineHint');
+      if (e.target.value) {
+        const d = Math.ceil((new Date(e.target.value) - new Date()) / 864e5);
+        h.textContent = d <= 0 ? 'Data no passado — confirme o prazo.' : d === 1 ? 'Faltam ~1 dia.' : `Faltam ~${d} dias.`;
+      } else h.textContent = 'Sem urgência? Deixe em branco e a gente combina.';
+      update();
+    });
+    // limite mínimo = hoje
+    $('deadline').min = new Date().toISOString().slice(0,10);
+
+    /* ---------- tabs modelo ---------- */
+    $('modelTabs').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      state.modelMode = b.dataset.tab;
+      $('modelTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      $('paneFile').style.display = state.modelMode === 'file' ? '' : 'none';
+      $('paneLink').style.display = state.modelMode === 'link' ? '' : 'none';
+      update();
+    });
+
+    /* ---------- dropzone ---------- */
+    const dz = $('dropzone'), fileInput = $('fileInput'), filePicked = $('filePicked');
+    const fmtSize = b => b < 1024 ? b+' B' : b < 1048576 ? (b/1024).toFixed(1)+' KB' : (b/1048576).toFixed(1)+' MB';
+    const EMBED_LIMIT = 3.5 * 1048576; // guarda o arquivo p/ download se for < ~3.5MB
+    /* ┌─────────────────────────────────────────────────────────────────────┐
+       │ PROD ▸ UPLOAD DO ARQUIVO STL                                        │
+       │ No protótipo, o arquivo é lido como base64 (FileReader.readAsDataURL)│
+       │ e guardado embutido no pedido (localStorage), com limite de ~3.5MB. │
+       │ EM PRODUÇÃO, troque por upload real para object storage:            │
+       │   1. POST multipart do File para /api/uploads  (ou presigned URL    │
+       │      direto pro bucket S3/GCS/R2).                                  │
+       │   2. Guarde no pedido apenas { fileUrl, fileKey, name, size,        │
+       │      contentType } — NÃO o conteúdo. Remova o EMBED_LIMIT.          │
+       │   3. Mostre progresso de upload no lugar de "lendo...".             │
+       │ Veja a especificação completa em: Pedidos — Integração.html         │
+       └─────────────────────────────────────────────────────────────────────┘ */
+    function setFile(f) {
+      state.file = f ? { name:f.name, size:f.size } : null;
+      state.fileData = null;
+      if (f) {
+        dz.style.display = 'none';
+        filePicked.style.display = '';
+        const note = f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
+        filePicked.innerHTML = `<div class="dz-file"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><div class="fn"><b>${f.name}</b><span id="dzNote">${fmtSize(f.size)} · ${note}</span></div><button type="button" class="rm" id="rmFile" aria-label="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
+        $('rmFile').addEventListener('click', () => { setFile(null); fileInput.value=''; update(); });
+        if (f.size <= EMBED_LIMIT) {
+          const fr = new FileReader();
+          fr.onload = () => { state.fileData = fr.result; const n = $('dzNote'); if (n) n.textContent = fmtSize(f.size) + ' · pronto p/ download'; };
+          fr.onerror = () => { const n = $('dzNote'); if (n) n.textContent = fmtSize(f.size) + ' · não foi possível ler'; };
+          fr.readAsDataURL(f);
+        }
+      } else {
+        dz.style.display = '';
+        filePicked.style.display = 'none';
+        filePicked.innerHTML = '';
+      }
+    }
+    dz.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); update(); });
+    ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
+    ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
+    dz.addEventListener('drop', e => { if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); update(); });
+
+    /* ---------- foco ---------- */
+    $('focusPick').addEventListener('click', e => {
+      const b = e.target.closest('.pick-card'); if (!b) return;
+      state.focus = b.dataset.focus;
+      $('focusPick').querySelectorAll('.pick-card').forEach(x => x.classList.toggle('on', x === b));
+      update();
+    });
+
+    /* ---------- cor ---------- */
+    $('colorPick').addEventListener('click', e => {
+      const b = e.target.closest('.pick-card'); if (!b) return;
+      state.color = b.dataset.color;
+      $('colorPick').querySelectorAll('.pick-card').forEach(x => x.classList.toggle('on', x === b));
+      update();
+    });
+
+    /* ============================================================
+       SUBMIT → POST /api/orders + ticket de confirmação
+       ============================================================ */
+    const err = $('err'), deck = $('deck');
+    function fail(msg) {
+      err.textContent = msg; err.classList.add('on');
+      deck.animate([{ transform:'translateX(-6px)' },{ transform:'translateX(6px)' },{ transform:'translateX(0)' }], { duration:240, easing:'ease-in-out' });
+    }
+
+    $('orderForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const c = checks();
+      if (!c.name)     return fail('informe seu nome');
+      if (!c.contact)  return fail('informe um WhatsApp ou e-mail válido');
+      if (!c.model)    return fail(state.modelMode === 'file' ? 'envie o arquivo do modelo' : 'cole um link de modelo válido');
+      if (!c.deadline) return fail('escolha um prazo');
+      if (!c.focus)    return fail('escolha o foco da peça');
+      if (!c.color)    return fail('escolha a cor');
+      err.classList.remove('on');
+
+      const modelDesc = state.modelMode === 'file' ? state.file.name : state.link.trim();
+      const focusLabel = state.focus === 'detail' ? 'Detalhe (0.08 mm)' : 'Função (0.28 mm)';
+      const colorLabel = state.color === 'color' ? 'Colorido (a combinar)' : 'Cor única';
+
+      /* ┌─────────────────────────────────────────────────────────────────────┐
+         │ PROD ▸ UPLOAD DO ARQUIVO STL                                        │
+         │ Hoje: arquivo lido como base64 e enviado embutido (~3.5 MB max).    │
+         │ EM PRODUÇÃO:                                                        │
+         │   1. POST multipart para /api/uploads (ou presigned URL do bucket). │
+         │   2. Substitua model.data abaixo por { fileUrl, fileKey, name, size}│
+         │      e remova o base64 — o backend armazenará só a referência.      │
+         │   3. Adicione barra de progresso de upload no lugar de "Enviando…". │
+         └─────────────────────────────────────────────────────────────────────┘ */
+      const payload = {
+        name:     state.name.trim(),
+        contact:  state.contact.trim(),
+        deadline: state.deadline,
+        focus:    state.focus,
+        color:    state.color,
+        model: {
+          mode:  state.modelMode,
+          value: modelDesc,
+          data:  state.modelMode === 'file' ? state.fileData : null,
+          size:  state.modelMode === 'file' ? (state.file && state.file.size) : null,
+        },
+      };
+
+      deck.classList.add('igniting');
+      $('sendTxt').textContent = 'Enviando…';
+      $('statTxt').textContent = 'NA FILA';
+
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          deck.classList.remove('igniting');
+          $('sendTxt').textContent = 'Enviar pedido';
+          return fail(d.error || 'erro ao enviar — tente novamente');
+        }
+        const { os } = await res.json();
+        setTimeout(() => {
+          showTicket(os, payload, colorLabel, focusLabel);
+          deck.classList.remove('igniting');
+          $('sendTxt').textContent = 'Enviar pedido';
+        }, 850);
+      } catch (_) {
+        deck.classList.remove('igniting');
+        $('sendTxt').textContent = 'Enviar pedido';
+        fail('sem conexão — tente novamente');
+      }
+    });
+
+    function showTicket(os, order, colorLabel, focusLabel) {
+      $('tkOs').textContent = os;
+      const dl = order.deadline ? new Date(order.deadline + 'T00:00:00').toLocaleDateString('pt-BR') : 'a combinar';
+      const swHtml = order.color === 'color' ? `<span class="sw sw-rainbow"></span>` : '';
+      $('tkBody').innerHTML = `
+        <div class="trow"><span class="tk">Cliente</span><span class="tv">${order.name}</span></div>
+        <div class="trow"><span class="tk">Contato</span><span class="tv">${order.contact}</span></div>
+        <div class="trow"><span class="tk">Modelo</span><span class="tv" style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${order.model.value}</span></div>
+        <div class="trow"><span class="tk">Prazo</span><span class="tv">${dl}</span></div>
+        <div class="trow"><span class="tk">Perfil</span><span class="tv">${focusLabel}</span></div>
+        <div class="trow"><span class="tk">Cor</span><span class="tv">${swHtml}${colorLabel}</span></div>`;
+      $('ticketScrim').classList.add('on');
+    }
+
+    $('tkNew').addEventListener('click', () => { window.location.reload(); });
+    $('ticketScrim').addEventListener('click', e => { if (e.target === $('ticketScrim')) $('ticketScrim').classList.remove('on'); });
+
+    drawBay();
+
+    /* morph contínuo + troca de personalidade (respeita reduced-motion) */
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setInterval(() => { tick++; drawBay(); }, 90);
+      setInterval(() => { shapeSeed = Math.floor(Math.random()*99999); }, 4200);
+    }
+  })();
+  </script>
+
+  <template id="__bundler_thumbnail">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <rect width="100" height="100" fill="#E8A33B"/>
+      <g fill="#1a1206"><rect x="26" y="62" width="48" height="6"/><path d="M34 62 L40 40 L60 40 L66 62 Z" opacity="0.85"/><circle cx="50" cy="30" r="5"/></g>
+    </svg>
+  </template>
+</body>
+</html>

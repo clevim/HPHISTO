@@ -110,9 +110,9 @@ function SpoolHub({ store, onNavigate }) {
         <span className="sc-label">{t('kpi_revenue')}</span>
         <span className="sc-value">{store.money(revenue)}</span>
         <div className="sc-stats">
-          <div><b>{store.money(profit)}</b><span>{t('kpi_profit')}</span></div>
-          <div><b>{activeJobs}</b><span>{t('kpi_jobs')}</span></div>
-          <div><b>{stockPct}%</b><span>{t('stock')}</span></div>
+          <div><b>{store.money(profit)}</b><span>{store.settings.lang === 'pt' ? 'Lucro' : 'Profit'}</span></div>
+          <div><b>{activeJobs}</b><span>{store.settings.lang === 'pt' ? 'Fila' : 'Queue'}</span></div>
+          <div><b>{stockPct}%</b><span>{store.settings.lang === 'pt' ? 'Estoque' : 'Stock'}</span></div>
         </div>
       </button>
 
