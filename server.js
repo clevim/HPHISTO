@@ -39,6 +39,21 @@ db.exec(`
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS orders (
+    id          TEXT    PRIMARY KEY,
+    os          TEXT    NOT NULL DEFAULT '',
+    customer_name TEXT  NOT NULL DEFAULT '',
+    contact     TEXT    NOT NULL DEFAULT '',
+    deadline    TEXT    NOT NULL DEFAULT '',
+    focus       TEXT    NOT NULL DEFAULT '',
+    color       TEXT    NOT NULL DEFAULT '',
+    model       TEXT    NOT NULL DEFAULT '{}',
+    client_id   TEXT    DEFAULT NULL,
+    quote_id    TEXT    DEFAULT NULL,
+    status      TEXT    NOT NULL DEFAULT 'novo',
+    seen        INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER DEFAULT (unixepoch())
+  );
 `);
 
 const _get = db.prepare('SELECT value FROM kv WHERE key = ?');
@@ -239,8 +254,74 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Pedidos do balcão público ──────────────────────────────────────────────────
+
+// POST /api/orders — público (sem auth): cliente envia pedido pelo balcão
+app.post('/api/orders', (req, res) => {
+  const { name, contact, deadline, focus, color, model } = req.body || {};
+  if (!name || !contact) return res.status(400).json({ error: 'nome e contato são obrigatórios' });
+
+  const id = `ord_${crypto.randomBytes(4).toString('hex')}`;
+  const os = 'OS-' + (1000 + Math.floor(Math.random() * 9000));
+
+  // tenta casar com cliente existente pelo contato
+  const normContact = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, '');
+  const state = readState();
+  const existing = (state.clients || []).find(c => c.contact && normContact(c.contact) === normContact(contact));
+  let clientId = existing ? existing.id : null;
+
+  // se não existe, cria um novo cliente automaticamente
+  if (!clientId) {
+    clientId = `cli_${crypto.randomBytes(4).toString('hex')}`;
+    state.clients = [{ id: clientId, name, contact: contact.trim(), notes: '', createdAt: Date.now(), fromOrder: true }, ...(state.clients || [])];
+    writeState(state);
+  }
+
+  db.prepare(`INSERT INTO orders (id, os, customer_name, contact, deadline, focus, color, model, client_id, status, seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', 0)`)
+    .run(id, os, name.trim(), contact.trim(), deadline || '', focus || '', color || '',
+      JSON.stringify(model || {}), clientId);
+
+  res.status(201).json({ id, os, clientId });
+});
+
 // Autenticação em todas as rotas /api (exceto as de auth já respondidas)
 app.use('/api', auth);
+
+// GET /api/orders — lista todos os pedidos (requer auth)
+app.get('/api/orders', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM orders ORDER BY created_at DESC').all();
+  res.json(rows.map(r => ({
+    id: r.id, os: r.os, name: r.customer_name, contact: r.contact,
+    deadline: r.deadline, focus: r.focus, color: r.color,
+    model: JSON.parse(r.model || '{}'),
+    clientId: r.client_id, quoteId: r.quote_id,
+    status: r.status, seen: !!r.seen,
+    createdAt: r.created_at * 1000,
+  })));
+});
+
+// PATCH /api/orders/:id — atualiza status, seen ou quoteId (requer auth)
+app.patch('/api/orders/:id', (req, res) => {
+  const { status, seen, quoteId, clientId } = req.body || {};
+  const sets = []; const params = [];
+  if (status   !== undefined) { sets.push('status = ?');   params.push(status); }
+  if (seen     !== undefined) { sets.push('seen = ?');     params.push(seen ? 1 : 0); }
+  if (quoteId  !== undefined) { sets.push('quote_id = ?'); params.push(quoteId); }
+  if (clientId !== undefined) { sets.push('client_id = ?'); params.push(clientId); }
+  if (sets.length === 0) return res.status(400).json({ error: 'nenhum campo para atualizar' });
+  params.push(req.params.id);
+  const r = db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
+
+// DELETE /api/orders/:id — remove pedido (requer auth)
+app.delete('/api/orders/:id', (req, res) => {
+  const r = db.prepare('DELETE FROM orders WHERE id = ?').run(req.params.id);
+  if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
