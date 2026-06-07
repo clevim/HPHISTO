@@ -109,9 +109,9 @@ function GcodeDrop({ store, onParsed, fileName, onClear }) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target.result;
-      const parsed = CALC.parseGcode(text);
+      const parsed = GCODE.parseGcode(text);
       let geo = null;
-      try { geo = CALC.parseGcodeGeo(text); } catch (err) { geo = null; }
+      try { geo = GCODE.parseGcodeGeo(text); } catch (err) { geo = null; }
       onParsed(parsed, file.name, geo);
     };
     reader.readAsText(file);
