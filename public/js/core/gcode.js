@@ -45,10 +45,12 @@ window.GCODE = (function () {
     const lines = text.split('\n');
     const N = lines.length;
     let x = 0, y = 0, z = 0, lastE = 0, absXY = true, absE = true;
-    const layers = []; let cur = null;
+    // zMap: z.toFixed(2) → { z, paths: [[[x,y],...], ...] }
+    // Cada sub-path é uma sequência contínua de extrusão; travels resetam curPath.
+    const zMap = new Map();
+    let curPath = null, curPathZ = -1;
     let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, minz = 1e9, maxz = -1e9;
     let stored = 0;
-    // limite de pontos armazenados para não travar em arquivos grandes
     const CAP = 320000;
     for (let i = 0; i < N; i++) {
       const ln = lines[i];
@@ -67,42 +69,56 @@ window.GCODE = (function () {
         const nz = zm ? (absXY ? parseFloat(zm[1]) : z + parseFloat(zm[1])) : z;
         let extr = false;
         if (em) { const ev = parseFloat(em[1]); const ed = absE ? ev - lastE : ev; if (ed > 0.0001) extr = true; if (absE) lastE = ev; }
-        if (zm && nz !== z && nz > z) { cur = null; }
+        // Mudança de camada — encerra sub-path atual
+        if (zm && nz !== z && nz > z) { curPath = null; }
         if (extr && (xm || ym) && stored < CAP) {
-          if (!cur || cur.z !== nz) { cur = { z: nz, pts: [] }; layers.push(cur); }
-          cur.pts.push([nx, ny]);
+          const k = nz.toFixed(2);
+          if (!zMap.has(k)) zMap.set(k, { z: nz, paths: [] });
+          const layer = zMap.get(k);
+          // Travel anterior ou nova camada → inicia novo sub-path a partir da posição atual
+          if (!curPath || curPathZ !== nz) {
+            curPath = [[x, y]];
+            layer.paths.push(curPath);
+            curPathZ = nz;
+          }
+          curPath.push([nx, ny]);
           stored++;
           if (nx < minx) minx = nx; if (nx > maxx) maxx = nx;
           if (ny < miny) miny = ny; if (ny > maxy) maxy = ny;
           if (nz < minz) minz = nz; if (nz > maxz) maxz = nz;
+        } else if (!extr && (xm || ym)) {
+          curPath = null; // travel — encerra sub-path
         }
         x = nx; y = ny; z = nz;
       }
     }
-    const full = layers.filter(l => l.pts.length > 1);
-    const zset = {};
-    layers.forEach(l => { zset[l.z.toFixed(2)] = 1; });
-    const nLayers = Math.max(Object.keys(zset).length, full.length, 1);
-    if (full.length === 0) return { nLayers, layers: [], bounds: { minx, maxx, miny, maxy, minz, maxz } };
-    // Agrupa por nível Z e escolhe o caminho mais longo por nível.
-    // Distribui até 22 alturas distintas do fundo ao topo para evitar que perímetros
-    // do mesmo Z monopolizem os slots.
-    const zMap = new Map();
-    full.forEach(l => {
-      const k = l.z.toFixed(2);
-      if (!zMap.has(k) || l.pts.length > zMap.get(k).pts.length) zMap.set(k, l);
-    });
-    const zLevels = [...zMap.keys()].sort((a, b) => parseFloat(a) - parseFloat(b));
-    const want = Math.min(22, zLevels.length);
+    // Coleta camadas com pelo menos um sub-path com ≥2 pontos, ordena por Z
+    const allLayers = [...zMap.values()]
+      .map(l => ({ z: l.z, paths: l.paths.filter(p => p.length > 1) }))
+      .filter(l => l.paths.length > 0)
+      .sort((a, b) => a.z - b.z);
+    const nLayers = Math.max(allLayers.length, 1);
+    if (allLayers.length === 0) return { nLayers, layers: [], bounds: { minx, maxx, miny, maxy, minz, maxz } };
+    // Distribui até 22 alturas distintas do fundo ao topo
+    const want = Math.min(22, allLayers.length);
     const chosen = [];
     for (let i = 0; i < want; i++)
-      chosen.push(zMap.get(zLevels[Math.round(i * (zLevels.length - 1) / (want - 1 || 1))]));
+      chosen.push(allLayers[Math.round(i * (allLayers.length - 1) / (want - 1 || 1))]);
+    // Simplifica: limita total de pontos por camada a MAXP (subamostra cada sub-path)
     const MAXP = 200;
     const simp = chosen.map(l => {
-      if (l.pts.length <= MAXP) return { z: l.z, pts: l.pts };
-      const st = Math.ceil(l.pts.length / MAXP), out = [];
-      for (let i = 0; i < l.pts.length; i += st) out.push(l.pts[i]);
-      return { z: l.z, pts: out };
+      const totalPts = l.paths.reduce((s, p) => s + p.length, 0);
+      if (totalPts <= MAXP) return { z: l.z, paths: l.paths };
+      const ratio = MAXP / totalPts;
+      const paths = l.paths.map(p => {
+        if (p.length <= 2) return p;
+        const step = Math.max(1, Math.round(1 / ratio));
+        const out = [p[0]];
+        for (let j = step; j < p.length - 1; j += step) out.push(p[j]);
+        out.push(p[p.length - 1]);
+        return out;
+      }).filter(p => p.length > 1);
+      return { z: l.z, paths };
     });
     return { nLayers, layers: simp, bounds: { minx, maxx, miny, maxy, minz, maxz } };
   }

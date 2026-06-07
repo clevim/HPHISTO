@@ -168,10 +168,10 @@ function BuildChamber({ result, store, input, material }) {
     // Recomputa bounds XY a partir das layers escolhidas — evita que linhas de purga
     // do slicer (prime line na borda da mesa) inflacionem a escala e deixem o modelo minúsculo
     let bx0=1e9, bx1=-1e9, by0=1e9, by1=-1e9;
-    geoData.layers.forEach(l => l.pts.forEach(p => {
+    geoData.layers.forEach(l => l.paths.forEach(path => path.forEach(p => {
       if(p[0]<bx0) bx0=p[0]; if(p[0]>bx1) bx1=p[0];
       if(p[1]<by0) by0=p[1]; if(p[1]>by1) by1=p[1];
-    }));
+    })));
     const gW  = Math.max(bx1 - bx0, 0.001);
     const gD  = Math.max(by1 - by0, 0.001);
     const gZr = Math.max(b.maxz - b.minz, 0.001);
@@ -186,15 +186,18 @@ function BuildChamber({ result, store, input, material }) {
     gcoPaths = geoData.layers.map((layer) => {
       const hz = Math.max(0, (layer.z - b.minz) * zScale);
       let d = '';
-      for (let k = 0; k < layer.pts.length; k++) {
-        const ux = (layer.pts[k][0] - cxB) * xyScale + cx;
-        const uy = (layer.pts[k][1] - cyB) * xyScale + cy;
-        const rx = (ux - cx) * cosR - (uy - cy) * sinR + cx;
-        const ry = (ux - cx) * sinR + (uy - cy) * cosR + cy;
-        const p = proj(rx, ry, hz);
-        d += (k === 0 ? 'M ' : 'L ') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
-      }
-      return { d: d + 'Z', hz };
+      // Cada sub-path é uma sequência contínua de extrusão; usa M no início de cada um
+      layer.paths.forEach(path => {
+        path.forEach((pt, k) => {
+          const ux = (pt[0] - cxB) * xyScale + cx;
+          const uy = (pt[1] - cyB) * xyScale + cy;
+          const rx = (ux - cx) * cosR - (uy - cy) * sinR + cx;
+          const ry = (ux - cx) * sinR + (uy - cy) * cosR + cy;
+          const p = proj(rx, ry, hz);
+          d += (k === 0 ? 'M ' : 'L ') + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ' ';
+        });
+      });
+      return { d, hz };
     });
   }
 
