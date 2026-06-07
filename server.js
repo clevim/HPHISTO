@@ -171,8 +171,6 @@ app.get(['/', '/index.html'], (req, res, next) => {
     if (header === `Bearer ${API_TOKEN}`) return next();
   }
 
-  if (!API_TOKEN && userCount() === 0) return next();
-
   const uc = userCount();
   return res.redirect(302, uc === 0 ? '/Cadastro.html' : '/Login.html');
 });
