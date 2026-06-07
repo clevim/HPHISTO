@@ -452,6 +452,7 @@
     /* ---------- estado do pedido ---------- */
     let tick = 0, shapeSeed = Math.floor(Math.random()*99999);
     let gcodeModel = null; // preenchido quando o arquivo for .gcode
+    let stlModel   = null; // preenchido quando o arquivo for .stl
     const state = { name:'', contact:'', modelMode:'file', file:null, fileData:null, link:'', deadline:'', focus:'', color:'' };
 
     /* ---------- validação ---------- */
@@ -668,6 +669,131 @@
       return vis.length ? (vis[vis.length - 1].z - m.zMin) * zScale : 0;
     }
 
+    /* ============================================================
+       STL — parser binário/ASCII + renderizador isométrico sombreado
+       Suporta STL binário (típico dos slicers) e ASCII.
+       Escala adaptativa, rotação XY temporal, sombreamento por normal.
+       ============================================================ */
+    function parseStl(buffer) {
+      const MAX_TRIS = 2500;
+      const bytes = new Uint8Array(buffer);
+      const triangles = [];
+      let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9,minz=1e9,maxz=-1e9;
+
+      // Detecta ASCII vs binário: STL binário real tem tamanho = 84 + count*50
+      const view = new DataView(buffer);
+      const binCount = buffer.byteLength >= 84 ? view.getUint32(80, true) : 0;
+      const head5 = String.fromCharCode(bytes[0],bytes[1],bytes[2],bytes[3],bytes[4]).toLowerCase();
+      const looksAscii = head5.startsWith('solid') && buffer.byteLength !== 84 + binCount * 50;
+
+      if (looksAscii) {
+        const text = new TextDecoder('utf-8').decode(buffer);
+        let normal = [0,0,1], verts = [];
+        for (const raw of text.split('\n')) {
+          const ln = raw.trim(), lc = ln.toLowerCase();
+          if (lc.startsWith('facet normal')) {
+            const p = ln.split(/\s+/);
+            normal = [+p[2]||0, +p[3]||0, +p[4]||0]; verts = [];
+          } else if (lc.startsWith('vertex')) {
+            const p = ln.split(/\s+/);
+            const x=+p[1],y=+p[2],z=+p[3];
+            verts.push([x,y,z]);
+            if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y;
+            if(y>maxy)maxy=y; if(z<minz)minz=z; if(z>maxz)maxz=z;
+          } else if (lc.startsWith('endfacet') && verts.length>=3) {
+            triangles.push({n:normal, v:[verts[0],verts[1],verts[2]]}); verts=[];
+          }
+        }
+      } else {
+        // Binário: lê até MAX_TRIS×6 triângulos para sub-amostrar depois
+        const n = Math.min(binCount, MAX_TRIS * 6);
+        for (let i=0; i<n; i++) {
+          const off = 84 + i*50;
+          if (off+50 > buffer.byteLength) break;
+          const nx=view.getFloat32(off,true), ny=view.getFloat32(off+4,true), nz=view.getFloat32(off+8,true);
+          const v=[];
+          for (let j=0; j<3; j++) {
+            const vo=off+12+j*12;
+            const x=view.getFloat32(vo,true), y=view.getFloat32(vo+4,true), z=view.getFloat32(vo+8,true);
+            v.push([x,y,z]);
+            if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y;
+            if(y>maxy)maxy=y; if(z<minz)minz=z; if(z>maxz)maxz=z;
+          }
+          triangles.push({n:[nx,ny,nz], v});
+        }
+      }
+
+      if (!triangles.length) return null;
+      // Sub-amostragem uniforme se necessário
+      const step = triangles.length > MAX_TRIS ? Math.ceil(triangles.length / MAX_TRIS) : 1;
+      const tris = step > 1 ? triangles.filter((_,i) => i%step===0) : triangles;
+      return { tris, bounds:{minx,maxx,miny,maxy,minz,maxz}, total:triangles.length };
+    }
+
+    // Renderiza STL sombreado com rotação temporal — retorna topZ para o cabeçote
+    function drawStlShape(frac, time) {
+      const m = stlModel;
+      const b = m.bounds;
+      const gW  = Math.max(b.maxx-b.minx, 0.001);
+      const gD  = Math.max(b.maxy-b.miny, 0.001);
+      const gZr = Math.max(b.maxz-b.minz, 0.001);
+      const xyScale = Math.min((W*0.82)/gW, (D*0.82)/gD);
+      const zScale  = Math.max(60/gZr, Math.min(185/gZr, 2));
+      const zCut    = b.minz + frac * gZr;
+
+      const rot  = time * 0.28;
+      const cosR = Math.cos(rot), sinR = Math.sin(rot);
+      const cxB  = (b.minx+b.maxx)/2, cyB = (b.miny+b.maxy)/2;
+
+      // Projeta vértice: centra → escala → gira XY → isométrico
+      const mapV = (x, y, z) => {
+        const dx = (x-cxB)*xyScale, dy = (y-cyB)*xyScale;
+        return proj(dx*cosR - dy*sinR + W/2, dx*sinR + dy*cosR + D/2, (z-b.minz)*zScale);
+      };
+
+      // Filtra triângulos abaixo da linha de corte (efeito "imprimindo de baixo")
+      const visible = m.tris.filter(t => (t.v[0][2]+t.v[1][2]+t.v[2][2])/3 <= zCut);
+      if (!visible.length) return 0;
+
+      // Painter's algorithm: profundidade isométrica = (rx + ry) após rotação
+      const withD = visible.map(t => {
+        const cx_=(t.v[0][0]+t.v[1][0]+t.v[2][0])/3 - cxB;
+        const cy_=(t.v[0][1]+t.v[1][1]+t.v[2][1])/3 - cyB;
+        return { t, depth: cx_*(cosR+sinR) + cy_*(cosR-sinR) };
+      });
+      withD.sort((a,b_) => b_.depth - a.depth);
+
+      // Sombreamento: topo claro, frente média, esquerda escura
+      const shadeFace = (nx, ny, nz) => {
+        const rnx = nx*cosR - ny*sinR, rny = nx*sinR + ny*cosR;
+        const top   = Math.max(0, nz);
+        const front = Math.max(0, (rnx+rny)/1.414);
+        const left  = Math.max(0, (-rnx+rny)/1.414);
+        return Math.max(0.15, Math.min(0.97, 0.28 + 0.52*top + 0.22*front - 0.08*left));
+      };
+
+      const useColor = state.color === 'color';
+      const isoG = el('g', null, 'iso-stl');
+      withD.forEach(({t}, i) => {
+        const br = shadeFace(...t.n);
+        const tt = i/(withD.length-1||1);
+        let fill;
+        if (useColor) {
+          const hue = (((time*26 + tt*150) % 360) + 360) % 360;
+          fill = `oklch(${(0.40+0.30*br).toFixed(2)} 0.16 ${hue.toFixed(0)})`;
+        } else {
+          fill = `oklch(${(0.22+0.60*br).toFixed(2)} 0.012 95)`;
+        }
+        const pts = t.v.map(v=>{ const p=mapV(v[0],v[1],v[2]); return p.x.toFixed(1)+','+p.y.toFixed(1); }).join(' ');
+        isoG.appendChild(el('polygon', {
+          points:pts, fill, 'fill-opacity':'0.93',
+          stroke:fill, 'stroke-width':'0.25', 'stroke-opacity':'0.5', 'stroke-linejoin':'round',
+        }));
+      });
+      bay.appendChild(isoG);
+      return (zCut - b.minz) * zScale;
+    }
+
     function drawBay() {
       const c = checks();
       const done = Object.values(c).filter(Boolean).length;
@@ -703,12 +829,20 @@
       const layerStep = state.focus === 'detail' ? 4.4 : state.focus === 'function' ? 9 : 6;
       const cx = W/2, cy = D/2;
 
-      if (gcodeModel && gcodeModel.layers.length > 0) {
+      if (stlModel && stlModel.tris.length > 0) {
+        // ── MODO STL: mesh sombreado, gira e cresce com o formulário ──
+        if (frac > 0) {
+          topZ = drawStlShape(frac, time);
+        } else {
+          const ghost = genOrganic(3, shapeSeed, time, cx, cy, 6);
+          let d=''; ghost.layers[0].ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],0.4); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
+          bay.appendChild(el('path', { d:d+'Z' }, 'ghost-foot'));
+        }
+      } else if (gcodeModel && gcodeModel.layers.length > 0) {
         // ── MODO G-CODE: caminhos reais do arquivo, girando no tempo ──
         if (frac > 0) {
           topZ = drawGcodeShape(frac, time);
         } else {
-          // Formulário ainda vazio — mostra silhueta fantasma
           const ghost = genOrganic(3, shapeSeed, time, cx, cy, 6);
           let d=''; ghost.layers[0].ring.forEach((p,k)=>{ const pr=proj(p[0],p[1],0.4); d += (k===0?'M ':'L ')+pr.x.toFixed(1)+','+pr.y.toFixed(1)+' '; });
           bay.appendChild(el('path', { d:d+'Z' }, 'ghost-foot'));
@@ -756,9 +890,11 @@
 
       // HUD
       $('bayPct').textContent = Math.round(frac*100) + '%';
-      $('roLayer').textContent = (gcodeModel && gcodeModel.totalLayers)
-        ? gcodeModel.totalLayers + ' camadas'
-        : state.focus === 'detail' ? '0.08mm' : state.focus === 'function' ? '0.28mm' : '0.16mm';
+      $('roLayer').textContent = stlModel
+        ? (() => { const b=stlModel.bounds; return `${(b.maxx-b.minx).toFixed(0)}×${(b.maxy-b.miny).toFixed(0)}×${(b.maxz-b.minz).toFixed(0)} mm`; })()
+        : (gcodeModel && gcodeModel.totalLayers)
+          ? gcodeModel.totalLayers + ' camadas'
+          : state.focus === 'detail' ? '0.08mm' : state.focus === 'function' ? '0.28mm' : '0.16mm';
       $('roFil').textContent = state.color === 'color' ? 'colorido' : state.color === 'mono' ? 'cor única' : '—';
 
       const dot = $('statDot'), stat = $('statTxt');
@@ -823,16 +959,40 @@
        └─────────────────────────────────────────────────────────────────────┘ */
     function setFile(f) {
       gcodeModel = null;
+      stlModel   = null;
       state.file = f ? { name:f.name, size:f.size } : null;
       state.fileData = null;
       if (f) {
         dz.style.display = 'none';
         filePicked.style.display = '';
+        const isStl   = /\.stl$/i.test(f.name);
         const isGcode = /\.gcode$/i.test(f.name);
-        const note = isGcode ? 'lendo gcode…' : f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
+        const note = isStl ? 'lendo stl…' : isGcode ? 'lendo gcode…' : f.size <= EMBED_LIMIT ? 'lendo...' : 'grande — não será guardado p/ download';
         filePicked.innerHTML = `<div class="dz-file"><span class="fi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg></span><div class="fn"><b>${esc(f.name)}</b><span id="dzNote">${esc(fmtSize(f.size))} · ${esc(note)}</span></div><button type="button" class="rm" id="rmFile" aria-label="Remover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
         $('rmFile').addEventListener('click', () => { setFile(null); fileInput.value=''; update(); });
-        if (isGcode) {
+        if (isStl) {
+          // Lê como ArrayBuffer para parser binário/ASCII
+          const rdr = new FileReader();
+          rdr.onload = (e) => {
+            stlModel = parseStl(e.target.result);
+            const n = $('dzNote');
+            if (stlModel) {
+              const b = stlModel.bounds;
+              if (n) n.textContent = fmtSize(f.size) + ` · ${(b.maxx-b.minx).toFixed(0)}×${(b.maxy-b.miny).toFixed(0)}×${(b.maxz-b.minz).toFixed(0)} mm`;
+            } else {
+              if (n) n.textContent = fmtSize(f.size) + ' · formato não reconhecido';
+            }
+            update();
+          };
+          rdr.onerror = () => { const n=$('dzNote'); if(n) n.textContent=fmtSize(f.size)+' · erro ao ler'; };
+          rdr.readAsArrayBuffer(f);
+          // Também embutir para download se pequeno o suficiente
+          if (f.size <= EMBED_LIMIT) {
+            const fr = new FileReader();
+            fr.onload = () => { state.fileData = fr.result; };
+            fr.readAsDataURL(f);
+          }
+        } else if (isGcode) {
           // Lê como texto para parsear camadas — G-code não é embutido no payload
           const rdr = new FileReader();
           rdr.onload = (e) => {
